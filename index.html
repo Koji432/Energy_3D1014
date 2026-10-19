@@ -1,79 +1,27 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f4f5ef"><meta name="description" content="家の3Dモデルで、分電盤・ブレーカー・漏電・アース・感電のしくみを学ぶ体験型教材。">
-  <title>おうちの電気 3D — 分電盤と安全のしくみ</title>
-  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css">
-  <script defer src="./app.bundle.js"></script>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#e9eee4">
+<title>火力発電所から家まで 3D</title><meta name="description" content="火力発電所から送電線・変電所・配電線・家の分電盤へ届く電気の流れを一望する3Dアニメーション。">
+<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css"><script defer src="./app.bundle.js?v=20261019"></script>
 </head>
 <body>
-<header class="app-header">
-  <a class="brand" href="./" aria-label="おうちの電気 3D ホーム"><img src="./assets/favicon.svg" alt="" width="37" height="37"><div><h1>おうちの電気 <span>3D</span></h1><p>分電盤と安全のしくみ</p></div></a>
-  <div class="header-note"><span class="status-dot"></span> 見えない電気を、見てみよう。</div>
-  <button id="about-open" class="text-button">この教材について <span>↗</span></button>
-</header>
-<main class="workspace">
-  <aside class="lesson-panel" aria-label="学習する場面">
-    <div class="section-heading"><span class="eyebrow">EXPLORE</span><h2>もしも、家の中で。</h2><p>場面を選んで、電気を追いかけよう。</p></div>
-    <nav id="scenario-list" aria-label="場面を選ぶ"></nav>
-    <div class="lesson-tip"><span>観察のヒント</span><p>どのブレーカーが動く？<br>どの部屋の電気が止まる？</p></div>
-  </aside>
-
-  <section class="scene-section" aria-label="家の3Dシミュレーター">
-    <div class="scene-heading"><div><span id="scene-number" class="eyebrow">SCENE 01</span><h2 id="scene-title">いつもの電気</h2></div><span id="status-badge" class="status-badge">通電中</span></div>
-    <div class="view-tabs" role="group" aria-label="カメラの視点"><button data-view="house" class="active" aria-pressed="true">家全体</button><button data-view="board" aria-pressed="false">分電盤</button><button data-view="earth" aria-pressed="false">アース・人体</button></div>
-    <div id="canvas-wrap">
-      <canvas id="scene" tabindex="0" aria-label="家の3Dモデル。ドラッグで回転、ホイールで拡大。矢印キーで回転、プラス・マイナスで拡大縮小できます。"></canvas>
-      <div id="labels" aria-hidden="true"></div>
-      <div id="loading" role="status">家の3Dモデルを準備しています…</div>
-      <div class="scene-tools"><button id="camera-reset" aria-label="視点をリセット" title="視点をリセット">⌂</button><button id="zoom-in" aria-label="拡大" title="拡大">＋</button><button id="zoom-out" aria-label="縮小" title="縮小">−</button><button id="labels-toggle" aria-pressed="true" aria-label="3Dラベルを表示" title="3Dラベルを表示">Aa</button></div>
-      <div class="scene-help">ドラッグで回転 <span>·</span> スクロールで拡大</div>
-    </div>
-    <div class="flow-legend" aria-label="線の色"><span><i class="line live"></i>行き</span><span><i class="line neutral"></i>戻り</span><span><i class="line earth"></i>アース</span><span><i class="line fault"></i>漏電・人体</span></div>
-    <div class="story-card"><div class="story-icon" id="story-icon">01</div><div><h3 id="story-title">電源から家電へ、そして電源へ戻る</h3><p id="story-text">黄色は行きの線、青色は戻りの線。通常は同じ大きさの電流が流れ、緑色のアース線には電流は流れません。</p></div></div>
-    <div class="playback">
-      <div class="playback-top"><button id="play" class="primary-button"><span id="play-symbol">Ⅱ</span><span id="play-label">一時停止</span></button><button id="replay" class="replay-button" aria-label="この場面を最初から再生">↺ <span>最初から</span></button><div class="playback-spacer"></div><label class="speed-label">速さ <select id="speed" aria-label="再生速度"><option value="0.5">0.5 ×</option><option value="1" selected>1 ×</option><option value="2">2 ×</option></select></label><span class="time-label" id="time-label">0.0 / 12</span></div>
-      <input id="timeline" type="range" min="0" max="12" step="0.01" value="0" aria-label="場面の再生位置">
-      <div class="timeline-labels"><span>通常</span><span id="fault-tick">変化が起こる</span><span id="trip-tick">遮断・結果を観察</span></div>
-      <p class="timing-note">観察用のスローモーションです。実際の遮断時間・電子の速さを表すものではありません。</p>
-    </div>
-  </section>
-
-  <aside class="inspector" aria-label="分電盤と電流の観察">
-    <section class="board-card"><div class="card-heading"><div><span class="eyebrow">DISTRIBUTION BOARD</span><h2>分電盤を見てみよう</h2></div><span class="tiny-badge">100 V モデル</span></div>
-      <div class="source-label"><span>電源から</span><span>↓</span></div>
-      <div class="main-breakers">
-        <button class="breaker" id="breaker-amp" data-breaker="amp" aria-pressed="true"><span class="breaker-type">家全体の使いすぎ</span><strong>アンペア<br>ブレーカー</strong><span class="breaker-switch"><i></i><em>入</em></span><span class="breaker-rating" id="contract-rating">30 A</span></button>
-        <div class="board-arrow">→</div>
-        <button class="breaker" id="breaker-rcd" data-breaker="rcd" aria-pressed="true"><span class="breaker-type">電流の行き・戻りの差</span><strong>漏電<br>遮断器</strong><span class="breaker-switch"><i></i><em>入</em></span><span class="breaker-rating">感度 30 mA</span></button>
-      </div>
-      <div class="branch-bus"><span>↓ 配線用遮断器：各回路の使いすぎ・ショート</span></div>
-      <div id="branch-breakers" class="branch-breakers"></div>
-      <p class="board-hint">ブレーカーを押すと、この教材内で入／切を試せます。</p>
-      <div id="breaker-detail" class="breaker-detail" aria-live="polite">分電盤は、電気を部屋ごとの回路に分けて見守ります。</div>
-    </section>
-
-    <section class="meter-card"><div class="card-heading"><h2>電流を比べる</h2><span id="meter-state" class="eyebrow">LIVE</span></div>
-      <div class="current-pair"><div><span><i class="dot live"></i>行き</span><strong id="current-out">14.000 <small>A</small></strong></div><span class="compare-sign">⇄</span><div><span><i class="dot neutral"></i>戻り</span><strong id="current-back">14.000 <small>A</small></strong></div></div>
-      <div class="difference-row"><span>漏れた電流の差</span><strong id="current-diff">0 <small>mA</small></strong></div>
-      <div class="difference-track"><i id="difference-bar"></i><span></span></div><div class="meter-scale"><span>0</span><span>感度 30 mA</span><span>60 mA</span></div>
-      <div class="path-currents"><span>アース線 <b id="earth-current">0 mA</b></span><span>人体 <b id="body-current">0 mA</b></span></div>
-      <p id="meter-note" class="meter-note">行きと戻りが同じ → 漏電による差は0</p>
-    </section>
-
-    <details class="experiment-card"><summary>条件を変えて試す <span>＋</span></summary><div class="experiment-body"><p>変更すると、新しい条件で最初から再生します。</p>
-      <label class="control-row">契約アンペア <select id="contract"><option value="20">20 A</option><option value="30" selected>30 A</option><option value="40">40 A</option><option value="60">60 A</option></select></label>
-      <div id="load-controls"></div>
-      <label class="control-row">故障の種類 <select id="fault-type"><option value="none">なし</option><option value="leak">洗濯機の絶縁故障</option><option value="short">キッチンのショート</option></select></label>
-      <label class="check-row"><input id="earth-connected" type="checkbox" checked> 洗濯機のアース線をつなぐ</label>
-      <label class="check-row"><input id="human-touch" type="checkbox"> 人がケースに触れる場面を示す</label>
-      <p class="experiment-note">教材内の比較です。実物で漏電や感電を試さないでください。</p>
-    </div></details>
-  </aside>
+<main id="scene-wrap">
+<canvas id="scene" tabindex="0" aria-label="火力発電所から送電線、変電所、配電線、家の分電盤につながる3Dモデル。ドラッグで回転、ホイールで拡大。設備をクリックすると拡大。矢印キーで回転、プラスとマイナスで拡大縮小、Homeで全景。"></canvas>
+<div id="loading" role="status" aria-label="3Dを準備しています"><i></i></div>
+<div class="playback" aria-label="アニメーション操作">
+<div class="playback-row">
+<button id="start" class="start"><svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg><span>スタート</span></button>
+<button id="pause" class="square" aria-label="一時停止" title="一時停止" disabled><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+<span class="divider"></span>
+<select id="speed" aria-label="再生速度" title="再生速度"><option value="0.5">0.5 ×</option><option value="1" selected>1 ×</option><option value="2">2 ×</option></select>
+<button id="follow" class="square" aria-label="電気の流れにカメラを追従" title="電気の流れにカメラを追従" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4"/><circle cx="12" cy="12" r="3"/></svg></button>
+<button id="overview" class="square" aria-label="全景に戻る" title="全景に戻る"><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 12h8m-4-4v8"/></svg></button>
+<button id="reset" class="square" aria-label="停止して最初に戻す" title="停止して最初に戻す"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 1 1 0 7M5 4v5h5"/></svg></button>
+</div>
+<input id="timeline" type="range" min="0" max="36" step="0.01" value="0" aria-label="アニメーションの位置" disabled>
+</div>
 </main>
-<footer class="app-footer"><span>HOME ELECTRICITY LAB <i>／</i> 電気の通り道を学ぶ3D教材</span><span>交流のある瞬間を模式化 · 配線の色は教材用</span></footer>
-<dialog id="about-dialog"><div class="dialog-heading"><span class="eyebrow">ABOUT THIS SIMULATION</span><button id="about-close" aria-label="説明を閉じる">×</button></div><h2>見えない電気を、観察する。</h2><p>家と分電盤は、この教材のために作成した3Dモデルです。単相2線式100 Vの簡略モデルで、3つの分岐回路を表しています。</p><h3>表現と実際の違い</h3><ul><li>家庭の電気は交流です。粒は交流のある瞬間の電流経路を示し、電子が一方向に走り続ける様子ではありません。線の色も説明用です。</li><li>漏電の50 mA、人体の5／50 mA、ショートの150 Aは比較用の例です。人体・接地の抵抗や実際の事故電流を計算していません。30 mAはこの漏電遮断器の定格感度で、安全な人体電流の意味ではありません。</li><li>アースと漏電遮断器を併用しても、感電を完全には防げません。アースありでも条件によって人体に電流が流れます。漏電の検知前や感度未満の場合にも危険があります。</li><li>漏電電流は大地で消えず、電源側の接地を通って電源に戻ります。戻り線とアース線は家の分電盤ではつないでいません。</li><li>各ブレーカーの機能を比較するため、漏電遮断器の過電流保護は省略しています。実際の動作時間・遮断順序は機種や条件により異なり、上位のブレーカーも動作する場合があります。</li><li>スマートメーターが契約容量を制限し、アンペアブレーカーがない住宅もあります。単相3線式100／200 Vの住宅も多く、このモデルはすべての住宅の配線を再現していません。</li></ul><h3>参考資料</h3><p><a href="https://www4.tepco.co.jp/pg/consignment/for-general/basic-knowledge/board.html" target="_blank" rel="noopener noreferrer">東京電力パワーグリッド「分電盤」↗</a><br><a href="https://www.jeea.or.jp/course/contents/10102/" target="_blank" rel="noopener noreferrer">日本電気技術者協会「感電災害の防止対策」↗</a></p><p class="dialog-safety">実際の故障が疑われるときは機器に触れず、電気工事店などに相談してください。この教材は工事・復旧操作の手順書ではありません。</p></dialog>
-<noscript><p class="no-script">この教材を表示するにはJavaScriptを有効にしてください。</p></noscript>
+<noscript>JavaScriptを有効にしてください。</noscript>
 </body>
 </html>

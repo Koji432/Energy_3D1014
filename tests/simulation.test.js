@@ -1,45 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCENARIOS, getFrame } from '../simulation.js';
-const s=id=>SCENARIOS.find(s=>s.id===id);
-test('normal: all branches remain supplied, with equal outgoing/return current',()=>{
-  for(const t of [0,5,12]){const f=getFrame(s('normal'),t);assert.equal(f.outgoing,18);assert.equal(f.returning,18);assert.equal(f.leakageMA,0);assert.deepEqual(f.powered,[true,true,true]);assert.equal(f.anyTrip,false);}
+import { DURATION,TIMING,getFrame,advancePlayback } from '../simulation.js';
+test('reset extinguishes all stages, even after a completed run',()=>{
+  const f=getFrame(DURATION,false);for(const key of Object.keys(TIMING))assert.equal(f[key],0);assert.equal(f.complete,false);
 });
-test('whole-home overload: each branch below 20 A, only contract breaker trips',()=>{
-  const before=getFrame(s('total'),5);assert.equal(before.outgoing,37);assert(before.requested.every(a=>a<20));
-  const f=getFrame(s('total'),8);assert.equal(f.ampTrip,true);assert.equal(f.rcdTrip,false);assert.deepEqual(f.branchTrip,[false,false,false]);assert.deepEqual(f.loads,[0,0,0]);
+test('grid stages energize in physical source-to-load order',()=>{
+  const keys=['generation','transmission','substation','distribution','service','home'];
+  for(let i=1;i<keys.length;i++){const f=getFrame(TIMING[keys[i]][0]);assert.equal(f[keys[i]],0);assert.equal(f[keys[i-1]],1);}
 });
-test('branch overload: kitchen stops, other rooms keep their supply',()=>{
-  const f=getFrame(s('branch'),8);assert.equal(f.ampTrip,false);assert.equal(f.rcdTrip,false);assert.deepEqual(f.branchTrip,[false,true,false]);assert.deepEqual(f.loads,[4,0,4]);
+test('house lights wait for the service and panel',()=>{
+  assert.equal(getFrame(29).home,0);assert.equal(getFrame(32).light,0);
+  const f=getFrame(36);assert.equal(f.service,1);assert.equal(f.home,1);assert.equal(f.light,1);
 });
-test('short circuit: equal L/N currents and branch isolation in this teaching example',()=>{
-  const before=getFrame(s('short'),5);assert.equal(before.loads[1],150);assert.equal(before.leakageMA,0);assert.equal(before.outgoing,before.returning);
-  const f=getFrame(s('short'),9);assert.deepEqual(f.loads,[4,0,4]);assert.equal(f.rcdTrip,false);
+test('pause freezes story and mechanical/particle motion together',()=>{
+  const s={started:true,playing:false,time:17,motion:17,speed:2};assert.deepEqual(advancePlayback(s,.1),s);
 });
-test('earth leakage: the imbalance equals the earth path, then all load currents stop',()=>{
-  const before=getFrame(s('earth'),5);assert.equal(before.earthMA,50);assert.equal(before.bodyMA,0);assert(Math.abs(before.outgoing-before.returning-.05)<1e-10);
-  const f=getFrame(s('earth'),8);assert.equal(f.rcdTrip,true);assert.equal(f.outgoing,0);assert.equal(f.earthMA,0);assert.equal(f.detectedLeakageMA,50);assert.equal(f.caseLive,false);
+test('speed affects both story and animation motion',()=>{
+  const s={started:true,playing:true,time:5,motion:5,speed:2},next=advancePlayback(s,.1);assert.equal(next.time,5.2);assert.equal(next.motion,5.2);
 });
-test('without earth: case can be live before touch even though leakage is zero',()=>{
-  const f=getFrame(s('shock'),5);assert.equal(f.caseLive,true);assert.equal(f.leakageMA,0);assert.equal(f.anyTrip,false);
-  const floating={...s('shock'),touch:false};assert.equal(getFrame(floating,12).rcdTrip,false);assert.equal(getFrame(floating,12).caseLive,true);
+test('completed tour keeps operating until paused',()=>{
+  const s={started:true,playing:true,time:36,motion:40,speed:1},next=advancePlayback(s,.1);assert.equal(next.time,36);assert.equal(next.motion,40.1);
 });
-test('touch creates a body path before RCD trip, with no earth-wire current',()=>{
-  const before=getFrame(s('shock'),6);assert.equal(before.bodyMA,50);assert.equal(before.earthMA,0);assert.equal(before.rcdTrip,false);
-  const after=getFrame(s('shock'),9);assert.equal(after.rcdTrip,true);assert.equal(after.bodyMA,0);assert.equal(after.outgoing,0);
+test('scrubbing backward reproducibly extinguishes downstream equipment',()=>{
+  const before=getFrame(12);getFrame(36);assert.deepEqual(getFrame(12),before);assert.equal(before.home,0);assert.equal(before.light,0);assert(before.transmission>0);
 });
-test('earth does not imply zero body current when both paths are present',()=>{
-  const f=getFrame({...s('earth'),touch:true},6);assert.equal(f.bodyMA,5);assert.equal(f.earthMA,50);assert.equal(f.leakageMA,55);assert(Math.abs(f.outgoing-f.returning-.055)<1e-10);
-});
-test('manual branch isolation removes leakage while retaining other rooms',()=>{
-  const f=getFrame(s('earth'),10,{utility:false});assert.equal(f.leakageMA,0);assert.equal(f.rcdTrip,false);assert.deepEqual(f.powered,[true,true,false]);
-});
-test('manual main isolation prevents load or fault current',()=>{
-  for(const id of ['amp','rcd']){const f=getFrame(s('shock'),6,{[id]:false});assert.equal(f.outgoing,0);assert.equal(f.bodyMA,0);assert.equal(f.caseLive,false);}
-});
-test('a manually open upstream breaker prevents automatic overcurrent trips',()=>{
-  for(const scenario of ['total','branch','short'])for(const id of ['amp','rcd']){const f=getFrame(s(scenario),12,{[id]:false});assert.equal(f.anyTrip,false);assert.equal(f.outgoing,0);}
-});
-test('scrubbing back from a trip restores the earlier state deterministically',()=>{
-  const a=getFrame(s('earth'),5);getFrame(s('earth'),12);assert.deepEqual(getFrame(s('earth'),5),a);
+test('invalid or negative time cannot energize stages',()=>{
+  for(const time of [-3,NaN])for(const key of Object.keys(TIMING))assert.equal(getFrame(time)[key],0);
 });

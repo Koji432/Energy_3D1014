@@ -1,332 +1,300 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import { ModelBuilder,v } from './geometry.js';
+import { HomeModel } from './home-model.js';
+import { DURATION } from './simulation.js';
 
-const COLORS = { live: 0xe3ad39, neutral: 0x419dc9, earth: 0x48a477, fault: 0xe0634d, idle: 0xb3b9a7 };
-const v = p => new THREE.Vector3(...p);
+const GOLD=0xffcb51,BLUE=0x60b7d1,STEAM=0xf3b16b;
+const smooth=t=>t*t*(3-2*t);
+const PHASES=[{z:-1.35,y:5.7},{z:0,y:6.7},{z:1.35,y:5.7}];
 
-export class HouseScene {
-  constructor(canvas, labels, onSelect) {
-    this.canvas = canvas; this.labelRoot = labels; this.onSelect = onSelect;
-    this.flows = []; this.labels = []; this.breakers = {}; this.lights = []; this.pickables = [];
-    this.showLabels = true; this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    this.scene = new THREE.Scene();
-    this.root = new THREE.Group(); this.scene.add(this.root);
-    this.camera = new THREE.PerspectiveCamera(38, 1, .1, 150);
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.setClearColor(0xf1f4eb, 0);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = .95;
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enableDamping = true; this.controls.dampingFactor = .08;
-    this.controls.minDistance = 3; this.controls.maxDistance = 45;
-    this.controls.maxPolarAngle = Math.PI * .49;
-    this.controls.target.set(-.7, .6, 0);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xb4bea0, 2.0));
-    const sun = new THREE.DirectionalLight(0xfff7df, 2.4); sun.position.set(-4, 16, 10);
-    sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 12, bottom: -12, far: 50 });
-    sun.shadow.bias = -.0004; sun.shadow.normalBias = .025; this.scene.add(sun);
-    this.materials = {};
-    this.buildHouse(); this.buildFurniture(); this.buildBoard(); this.buildSource(); this.buildHuman(); this.buildWiring();
-    this.addLabel('living', 'リビング', [-2.6, .8, 3.5], '照明・エアコン', 'house');
-    this.addLabel('kitchen', 'キッチン', [3.7, 2.5, -2.5], 'レンジ・ケトル', 'house');
-    this.addLabel('utility', '洗面室', [5.0, 2.25, 1.5], '洗濯機', 'earth');
-    this.addLabel('board', '分電盤', [-4.0, 3.1, -3.55], '3つの役割で家を守る', 'board');
-    this.addLabel('source', '電源', [-7.4, 4.5, -2.6], '変圧器側の接地へ戻る', 'source');
-    this.addLabel('electrode', '接地極', [6.15, .15, 3.6], '大地へ', 'earth');
-    this.addLabel('earthreturn', '大地を通る経路（模式）→ 電源へ', [-1.4, .12, 5.1], '', null, true);
-    this.addLabel('human', '人の体も通り道になる', [1.2, 2.3, 3.25], '', 'earth');
-    this.setView('house', true); this.resize();
-    this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(canvas.parentElement);
-    this.controls.addEventListener('start', () => { this.tween = null; });
-    this.pointer = null;
-    canvas.addEventListener('pointerdown', e => { this.pointer = [e.clientX, e.clientY]; });
-    canvas.addEventListener('pointerup', e => {
-      if (!this.pointer || Math.hypot(e.clientX - this.pointer[0], e.clientY - this.pointer[1]) > 5) return;
-      const bounds = canvas.getBoundingClientRect();
-      const ray = new THREE.Raycaster();
-      ray.setFromCamera(new THREE.Vector2((e.clientX - bounds.left) / bounds.width * 2 - 1, -(e.clientY - bounds.top) / bounds.height * 2 + 1), this.camera);
-      const hit = ray.intersectObjects(this.pickables)[0]; if (hit) this.onSelect(hit.object.userData.select);
+export class PowerScene extends ModelBuilder {
+  constructor(canvas,onManual){
+    const root=new THREE.Group();super(root);
+    this.canvas=canvas;this.onManual=onManual;this.flows=[];this.pickables=[];this.glows=[];this.flames=[];this.dummy=new THREE.Object3D();this.currentView='overview';this.tween=null;
+    this.reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.scene=new THREE.Scene();this.scene.add(root);
+    this.camera=new THREE.OrthographicCamera(-30,30,20,-20,.1,200);
+    this.renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.renderer.setClearColor(0xe9eee4,0);
+    this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    this.renderer.outputColorSpace=THREE.SRGBColorSpace;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=.96;
+    this.scene.add(new THREE.HemisphereLight(0xf9fff3,0x91a280,1.8));
+    const sun=new THREE.DirectionalLight(0xfff1d5,2.1);sun.position.set(-15,35,23);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-38,right:38,top:25,bottom:-25,far:100});sun.shadow.normalBias=.025;sun.shadow.bias=-.0002;this.scene.add(sun);
+    this.controls=new OrbitControls(this.camera,canvas);this.controls.enableDamping=true;this.controls.dampingFactor=.09;this.controls.minZoom=.4;this.controls.maxZoom=14;this.controls.maxPolarAngle=1.48;
+    this.controls.addEventListener('start',()=>{this.cancelTween();this.currentView='manual';onManual();});
+    this.buildLandscape();this.buildThermal();this.buildGrid();this.buildHome();
+    this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(canvas.parentElement);this.resize();this.overview(true);
+    let pointer;
+    canvas.addEventListener('pointerdown',e=>{pointer=[e.clientX,e.clientY];});
+    canvas.addEventListener('pointerup',e=>{
+      if(!pointer||Math.hypot(e.clientX-pointer[0],e.clientY-pointer[1])>6)return;
+      const r=canvas.getBoundingClientRect(),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),this.camera);
+      const hit=ray.intersectObjects(this.pickables,false)[0];if(hit){onManual();this.focus(hit.object.userData.focus);}
     });
-    canvas.addEventListener('keydown', e => {
-      const offset = this.camera.position.clone().sub(this.controls.target);
-      const spherical = new THREE.Spherical().setFromVector3(offset);
-      if (e.key === 'ArrowLeft') spherical.theta -= .12;
-      else if (e.key === 'ArrowRight') spherical.theta += .12;
-      else if (e.key === 'ArrowUp') spherical.phi = Math.max(.15, spherical.phi - .1);
-      else if (e.key === 'ArrowDown') spherical.phi = Math.min(1.48, spherical.phi + .1);
-      else if (e.key === '+' || e.key === '=') spherical.radius = Math.max(3, spherical.radius * .9);
-      else if (e.key === '-') spherical.radius = Math.min(45, spherical.radius * 1.1);
-      else return;
-      e.preventDefault(); this.tween = null; this.camera.position.copy(this.controls.target).add(new THREE.Vector3().setFromSpherical(spherical));
+    canvas.addEventListener('keydown',e=>{
+      if(e.key==='Home'){e.preventDefault();onManual();this.overview();return;}
+      const s=new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+      if(e.key==='ArrowLeft')s.theta-=.12;else if(e.key==='ArrowRight')s.theta+=.12;else if(e.key==='ArrowUp')s.phi=Math.max(.15,s.phi-.1);else if(e.key==='ArrowDown')s.phi=Math.min(1.48,s.phi+.1);
+      else if(e.key==='+'||e.key==='=')this.camera.zoom=Math.min(14,this.camera.zoom*1.12);else if(e.key==='-')this.camera.zoom=Math.max(.4,this.camera.zoom/1.12);else return;
+      e.preventDefault();onManual();this.cancelTween();this.currentView='manual';this.camera.position.copy(this.controls.target).add(new THREE.Vector3().setFromSpherical(s));this.camera.updateProjectionMatrix();
     });
   }
-
-  mat(color, roughness = .65, metalness = 0) {
-    const key = `${color}-${roughness}-${metalness}`;
-    return this.materials[key] ||= new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  pick(object,focus){object.userData.focus=focus;this.pickables.push(object);return object;}
+  flow(points,stage,color=GOLD,{radius=.035,parent=this.root,curved=false,reverse=false}={}){
+    const cable=this.path(points,radius,0x7c8e81,parent,curved),geo=cable.mesh.geometry.clone();
+    const material=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.87,toneMapped:false});
+    const glow=new THREE.Mesh(geo,material);glow.scale.setScalar(1);parent.add(glow);
+    const length=cable.curve.getLength(),count=Math.max(6,Math.min(100,Math.ceil(length*2.4)));
+    const particles=new THREE.InstancedMesh(new THREE.SphereGeometry(Math.max(.052,radius*1.45),6,5),new THREE.MeshBasicMaterial({color,toneMapped:false}),count);
+    particles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);particles.frustumCulled=false;parent.add(particles);
+    const samples=Array.from({length:501},(_,i)=>cable.curve.getPoint(i/500));
+    this.flows.push({cable:cable.mesh,glow,particles,samples,count,length,stage,color,reverse,indexCount:geo.index.count});return cable;
   }
-  mesh(geo, material, pos, parent = this.root) {
-    const m = new THREE.Mesh(geo, material); m.position.copy(v(pos)); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
-  }
-  box(size, pos, color, parent = this.root) { return this.mesh(new THREE.BoxGeometry(...size), typeof color === 'number' ? this.mat(color) : color, pos, parent); }
-  cyl(r, height, pos, color, parent = this.root, axis = 'y') {
-    const m = this.mesh(new THREE.CylinderGeometry(r, r, height, 24), typeof color === 'number' ? this.mat(color) : color, pos, parent);
-    if (axis === 'z') m.rotation.x = Math.PI / 2; if (axis === 'x') m.rotation.z = Math.PI / 2; return m;
-  }
-  sphere(r, pos, color, parent = this.root) { return this.mesh(new THREE.SphereGeometry(r, 20, 12), typeof color === 'number' ? this.mat(color) : color, pos, parent); }
-  segment(a, b, radius, color, parent = this.root) {
-    const delta = v(b).sub(v(a)); const m = this.cyl(radius, delta.length(), v(a).add(v(b)).multiplyScalar(.5).toArray(), color, parent);
-    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize()); return m;
-  }
-  pick(object, name) { object.userData.select = name; this.pickables.push(object); return object; }
-  addLabel(id, title, point, sub, select, staticLabel = false) {
-    const el = document.createElement(select ? 'button' : 'div'); el.className = `scene-label${staticLabel ? ' static' : ''}`;el.dataset.labelId=id;
-    el.innerHTML = `<span>${title}</span>${sub ? `<small>${sub}</small>` : ''}`;
-    if (select) { el.tabIndex = -1; el.addEventListener('click', () => this.onSelect(select)); }
-    this.labelRoot.append(el); this.labels.push({ id, point: v(point), el });
-  }
-  floorText(text, pos, size = [2, .44]) {
-    const c = document.createElement('canvas'); c.width = 512; c.height = 128; const ctx = c.getContext('2d');
-    ctx.fillStyle = '#87917d'; ctx.font = '500 43px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, 256, 64);
-    const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace;
-    const m = this.mesh(new THREE.PlaneGeometry(...size), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }), pos);
-    m.rotation.x = -Math.PI / 2; m.castShadow = false;
-  }
-  buildHouse() {
-    this.box([16.2, .52, 11.0], [-.4, -.38, .2], 0xcbd4bd);
-    this.box([16.25, .08, 11.05], [-.4, -.09, .2], 0xe0e6d3);
-    this.box([11.45, .38, 8.4], [0, .15, 0], 0xe9e5d9);
-    this.box([5.65, .08, 8], [-2.75, .38, 0], 0xd7bf98);
-    this.box([5.3, .08, 3.95], [2.75, .38, -2.03], 0xe1d7bb);
-    this.box([5.3, .08, 3.8], [2.75, .38, 2.05], 0xcbd7ce);
-    for (let z = -3.8; z < 4; z += .38) this.box([5.5, .006, .014], [-2.75, .425, z], 0xcbb38e);
-    for (let x = .25; x < 5.5; x += .6) this.box([.012, .009, 3.8], [x, .427, 2.05], 0xbac9bd);
-    for (let z = .25; z < 4; z += .6) this.box([5.25, .009, .012], [2.75, .428, z], 0xbac9bd);
-    // Back wall with two real openings, and low cutaway walls towards the viewer.
-    this.box([11.4, 1.05, .18], [0, .92, -4], 0xe7e9df);
-    this.box([11.4, .45, .18], [0, 3.0, -4], 0xe7e9df);
-    for (const [x, width] of [[-5.12, .95], [-1.65, 2.0], [2.25, 1.55], [5.1, .8]]) this.box([width, 1.38, .18], [x, 2.12, -4], 0xe7e9df);
-    for (const [x, width] of [[-3.45, 2.3], [.6, 2.2], [3.95, 1.8]]) {
-      const glass = this.mat(0xb9d4ce).clone(); glass.transparent = true; glass.opacity = .42;
-      this.box([width, 1.17, .06], [x, 2.08, -4.02], glass);
-      for (const yy of [1.47, 2.7]) this.box([width + .15, .07, .26], [x, yy, -4], 0xf7f5e9);
-      this.box([.05, 1.2, .1], [x, 2.1, -3.95], 0xf7f5e9);
-    }
-    this.box([.16, 1.2, 8.15], [-5.6, 1.0, 0], 0xe5e7db);
-    this.box([.16, .65, 8.15], [5.6, .73, 0], 0xe7e9df);
-    this.box([11.25, .35, .15], [0, .57, 4.08], 0xf0f0e4);
-    this.box([.14, 1.0, 3.1], [.05, .92, -2.45], 0xe6e8dd);
-    this.box([.14, .68, 2.2], [.05, .76, 2.95], 0xe6e8dd);
-    this.box([3.55, .82, .14], [3.78, .83, .05], 0xe7e9e0);
-    this.box([.18, .05, 3.1], [.05, 1.44, -2.45], 0xfbf9eb);
-    this.box([3.6, .05, .19], [3.78, 1.26, .05], 0xfbf9eb);
-    this.box([1.4, .08, .52], [-1.7, .02, 4.6], 0xd4d8c6);
-    this.box([1.3, .08, .4], [-1.7, -.01, 5.05], 0xd4d8c6);
-    this.floorText('LIVING', [-2.1, .44, 3.1]);
-    this.floorText('KITCHEN', [2.4, .44, -.3], [1.8, .4]);
-    this.floorText('UTILITY', [3.9, .44, 3.7], [1.7, .4]);
-    // Small garden details keep the house readable as a physical miniature.
-    for (const [x,z] of [[-6.4,3.4], [6.6,-3.1]]) {
-      this.cyl(.33, .4, [x,.18,z], 0xbdab88);
-      this.sphere(.52, [x,.83,z], 0x8eab72); this.sphere(.36, [x+.26,1.14,z], 0x9bb77c);
+  pad(size,pos){return this.box(size,pos,0xdce1d1);}
+  buildLandscape(){
+    this.box([53,.7,23],[0,-.55,.6],0xbecbad);this.box([53.1,.07,23.1],[0,-.165,.6],0xdce5ce);
+    this.box([51,.035,1.6],[0,-.1,7.6],0xc0cbbb);
+    for(let x=-24;x<26;x+=2)this.box([.75,.009,.035],[x,-.075,7.6],0xe9eddf);
+    this.box([.05,.02,1.4],[16.3,-.065,7.6],0xe5e8dd);
+    this.pad([13,.17,9.4],[-18,.01,-1.7]);this.pad([8.6,.16,7.2],[6.4,0,-2.0]);
+    for(const [x,z,s]of [[-24,5,.85],[-11.8,6.1,.7],[-3.7,6.3,.9],[2.4,7,.6],[12.2,6,.65],[25.1,1.2,.8],[-3.7,-8,.8],[16,-7.4,.8]])this.tree(x,z,s);
+    for(let i=0;i<4;i++){
+      const hill=this.mesh(new THREE.ConeGeometry(3.7-i*.3,1.3+i*.2,7),this.mat(0xc2d2ae),[-8+i*7,-.1,-8.5]);hill.scale.z=.46;
     }
   }
-  buildFurniture() {
-    // Living room: upholstery, rug, low table, TV and air conditioner.
-    this.box([3.6,.025,2.5], [-2.65,.455,.9], 0xece2c8);
-    this.box([2.9,.35,1.1], [-3.6,.7,.15], 0x73917f);
-    this.box([3.0,.8,.24], [-3.6,1.12,-.33], 0x6a8775);
-    for (const x of [-5.0,-2.2]) this.box([.24,.65,1.2], [x,.98,.15], 0x799783);
-    for (const x of [-4.45,-3.6,-2.75]) this.box([.78,.16,.85], [x,.93,.22], 0x89a48b);
-    for (const x of [-4.45,-2.75]) this.box([.48,.4,.14], [x,1.25,-.12], 0xd4d9b5).rotation.z = .1;
-    this.box([1.5,.13,.86], [-3.45,.88,1.85], 0xb89d77);
-    for (const x of [-4.03,-2.87]) for (const z of [1.57,2.12]) this.box([.07,.4,.07], [x,.65,z], 0x9d8567);
-    this.box([.4,.035,.3], [-3.3,.97,1.8], 0xf2efdb);
-    this.cyl(.10,.16,[-3.8,1.02,1.8],0xe5ece0);
-    this.box([1.5,.4,.55], [-1.0,.64,-1.9], 0xc1ad8b);
-    this.box([1.45,.85,.10], [-1.0,1.35,-1.95], 0x344d48);
-    const tvMat = this.mat(0x759e99).clone(); tvMat.emissive = new THREE.Color(0x8eccc0);
-    this.box([1.32,.72,.02], [-1.0,1.35,-1.885], tvMat); this.lights.push({ material: tvMat, circuit: 0 });
-    this.box([.09,.2,.09], [-1,.93,-1.95], 0x344d48);
-    this.box([1.35,.5,.35], [-1.65,2.65,-3.73], 0xf3f0df);
-    for(let i=0;i<4;i++) this.box([1.1,.025,.02],[-1.65,2.5+i*.05,-3.54],0xb9c4b4);
-    this.cyl(.22,.07,[-4.8,.49,2.65],0xaeb29c); this.cyl(.035,1.7,[-4.8,1.35,2.65],0xaeb29c);
-    this.mesh(new THREE.ConeGeometry(.4,.45,32,1,true),this.mat(0xf3e8c7),[-4.8,2.15,2.65]);
-    // Kitchen cabinets and counter.
-    this.box([3.7,.82,.85],[3.15,.85,-3.25],0xb2c1ad);
-    this.box([3.85,.1,.96],[3.15,1.31,-3.25],0xf4f0df);
-    for (const x of [1.7,2.4,3.1,3.8,4.5]) { this.box([.018,.7,.02],[x, .85,-2.815],0x98aa92); this.box([.23,.035,.05],[x+.24,1.08,-2.79],0x748a7c); }
-    this.box([.85,.05,.56],[2.3,1.38,-3.2],0x91a5a0);
-    this.segment([2.3,1.43,-3.47],[2.3,1.85,-3.47],.035,0xb8c5b8); this.segment([2.3,1.85,-3.47],[2.3,1.85,-3.2],.035,0xb8c5b8);
-    this.box([.95,.54,.62],[4.2,1.62,-3.24],0xe8e7dd);
-    this.box([.65,.35,.02],[4.1,1.62,-2.92],0x465d57);
-    this.cyl(.045,.03,[4.56,1.7,-2.9],0x9baa95,this.root,'z');
-    this.cyl(.18,.32,[3.1,1.54,-3.17],0xf4eee0);this.cyl(.12,.03,[3.1,1.72,-3.17],0x6d8276);
-    this.segment([3.22,1.62,-3.17],[3.4,1.7,-3.17],.06,0xe2dfd0);
-    this.box([.92,1.95,.85],[4.72,1.42,-1.85],0xe7ece4);
-    this.box([.94,.025,.02],[4.72,1.65,-1.415],0xb2c2b4);
-    this.box([.055,.4,.065],[4.36,2.0,-1.39],0x9cb0a4);
-    this.box([1.4,.12,1.0],[1.55,1.08,-1.65],0xc8b18b);
-    for(const x of [1.0,2.1])for(const z of [-2,-1.3])this.box([.075,.62,.075],[x,.74,z],0xb69c75);
-    // Washing machine: visible door, control panel, conductive outer casing.
-    this.washerMaterial = this.mat(0xe8ebe3).clone();
-    this.pick(this.box([1.15,1.25,1.05],[4.1,1.08,2.25],this.washerMaterial),'earth');
-    this.box([1.2,.1,1.1],[4.1,1.75,2.25],0xf5f2e7);
-    this.cyl(.4,.07,[4.1,1.02,2.8],0x80958e,this.root,'z');
-    this.cyl(.31,.08,[4.1,1.02,2.85],0x3b5d60,this.root,'z');
-    this.cyl(.23,.09,[4.1,1.02,2.90],0x86b3b5,this.root,'z');
-    this.cyl(.065,.04,[4.37,1.55,2.79],0x6d887a,this.root,'z');
-    this.washerIndicator = this.box([.25,.08,.025],[3.82,1.55,2.79],this.mat(0x74a886).clone());
-    this.lights.push({ material:this.washerIndicator.material, circuit:2 });
-    this.box([1.2,.75,.7],[1.0,.84,3.2],0xb1c2b5); this.box([1.28,.12,.78],[1.0,1.25,3.2],0xf1f0e4);
-    this.cyl(.045,.35,[1.0,1.48,3.43],0xa2b4a8);this.segment([1,1.65,3.43],[1,1.65,3.15],.04,0xa2b4a8);
-    for (let i=0;i<3;i++) {
-      const light = this.mat(0xf8e4a6).clone();light.emissive = new THREE.Color(0xffce60);
-      const positions=[[-2.2,.46,2.5],[2.8,.46,-.8],[2.8,.46,3.3]];
-      const disk=this.cyl(.2,.015,positions[i],light);disk.castShadow=false;this.lights.push({material:light,circuit:i});
+  tree(x,z,s){
+    this.cyl(.09*s,1.15*s,[x,.4*s,z],0x9d9274);this.sphere(.65*s,[x,1.2*s,z],0x91ac73);this.sphere(.43*s,[x+.17*s,1.64*s,z],0xa4bb88);
+  }
+  buildThermal(){
+    const cream=0xd8deca,metal=0x6f8a81,dark=0x516d65,copper=0xbb894e;
+    // A steam thermal plant, with a modest front cutaway for the heat-to-motion step.
+    this.pick(this.box([3.5,5.1,.18],[-21,2.72,-3.42],cream),'plant');
+    this.pick(this.box([.18,5.1,3.1],[-22.7,2.72,-1.95],cream),'plant');
+    this.box([3.6,.16,3.2],[-21,.27,-1.95],0x8a9c82);
+    for(const x of [-22.8,-19.18])for(const z of [-3.55,-.35])this.box([.1,5.45,.1],[x,2.85,z],metal);
+    for(const y of [1.5,3.4,5.45])this.segment([-22.8,y,-3.6],[-19.18,y,-3.6],.045,metal);
+    this.box([3.7,.15,3.35],[-21,5.6,-1.95],cream);
+    for(let i=0;i<7;i++){
+      const x=-22.4+i*.44;
+      this.path([[x,.7,-2.9],[x,4.9,-2.9],[x,5.04,-2.55]],.073,0x92aaa3);
+      this.flow([[x,.7,-2.82],[x,4.92,-2.82]],'water',BLUE,{radius:.035});
     }
-  }
-  buildBoard() {
-    this.pick(this.box([2.15,1.15,.22],[-4.0,2.0,-3.64],0xf8f7ee),'board');
-    this.box([2.0,.99,.08],[-4.0,2.0,-3.48],0xdce2d5);
-    const list=[['amp',-4.72,2.13,.4],['rcd',-4.18,2.13,.4],['living',-3.65,2.17,.23],['kitchen',-3.33,2.17,.23],['utility',-3.65,1.72,.23]];
-    for (const [id,x,y,width] of list) {
-      this.pick(this.box([width,.4,.14],[x,y,-3.37],0xf1f0e3),id);
-      const pivot = new THREE.Group(); pivot.position.set(x,y,-3.25);this.root.add(pivot);
-      this.pick(this.box([width*.64,.13,.12],[0,.07,0],0x405d4c,pivot),id);
-      this.box([width*.45,.02,.015],[0,.085,.07],0xdae5cd,pivot);
-      this.breakers[id]=pivot;
+    this.cyl(.33,3.0,[-21,5.08,-2.6],0x9aafa1,this.root,'x');
+    this.box([3,.12,2.45],[-21,.55,-1.8],dark);
+    for(let i=0;i<9;i++){
+      const flame=this.mesh(new THREE.ConeGeometry(.23,1.35,7),new THREE.MeshBasicMaterial({color:i%2?0xffbe4a:0xef863d,transparent:true,opacity:.85,toneMapped:false}),[-22.1+(i%5)*.54,1.05,-2.3+Math.floor(i/5)*.7]);
+      this.flames.push(flame);
     }
-    this.floorText('L  /  N',[-5.0,.46,-2.5],[.7,.2]);
+    this.fireLight=new THREE.PointLight(0xffa232,0,6);this.fireLight.position.set(-21,1.9,-1.8);this.root.add(this.fireLight);
+    // Chimney and the separate flue-gas duct establish the thermal-plant silhouette.
+    this.cyl(.45,7.6,[-23.4,3.7,-4.25],cream);this.cyl(.49,.2,[-23.4,7.52,-4.25],metal);
+    for(const y of [3.1,4.8,6.5])this.cyl(.456,.3,[-23.4,y,-4.25],0xb1beb1);
+    this.path([[-21,5.4,-3.4],[-21,6.1,-4.25],[-23.4,6.1,-4.25]],.25,dark);
+    this.cyl(.75,2.4,[-22.5,1.25,2.1],cream);this.cyl(.78,.1,[-22.5,2.5,2.1],metal);
+    this.path([[-22.5,.5,2.1],[-21,.5,2.1],[-21,.7,-.5]],.09,dark);
+    this.pad([6.3,.25,3.0],[-15.7,.35,-1.7]);
+    for(const x of [-18.1,-15.6,-13.4])this.box([.55,1.1,1.5],[x,.95,-1.45],0x9eaf9c);
+    const shellMat=this.mat(cream).clone();shellMat.side=THREE.DoubleSide;
+    const shell=this.mesh(new THREE.CylinderGeometry(.85,.58,3.1,32,1,true,0,Math.PI),shellMat,[-17,2,-1.45]);shell.rotation.z=-Math.PI/2;this.pick(shell,'plant');
+    this.rotor=new THREE.Group();this.rotor.position.set(-17,2,-1.45);this.root.add(this.rotor);
+    this.cyl(.12,7.3,[1.3,0,0],0xa6b8ac,this.rotor,'x');
+    for(let j=0;j<7;j++){
+      const x=-1.2+j*.38,r=.45+j*.045;
+      this.cyl(r*.37,.11,[x,0,0],dark,this.rotor,'x');
+      for(let i=0;i<12;i++){const a=i/12*Math.PI*2,b=this.box([.07,r*.58,.08],[x,Math.cos(a)*r*.62,Math.sin(a)*r*.62],0x98afa5,this.rotor);b.rotation.x=a;b.rotation.y=.28;}
+      this.torus(r,.032,[-17+x,2,-1.45],0x95a79a);
+    }
+    for(const x of [-18.7,-15.2,-12.9])this.cyl(.24,.23,[x,2,-1.45],cream,this.root,'x');
+    const generatorShell=this.mesh(new THREE.CylinderGeometry(.75,.75,2.1,32,1,true,0,Math.PI),shellMat,[-13.7,2,-1.45]);generatorShell.rotation.z=-Math.PI/2;this.pick(generatorShell,'plant');
+    this.cyl(.32,1.8,[3.3,0,0],dark,this.rotor,'x');
+    this.box([1.7,.2,.42],[3.3,.3,0],0xc57958,this.rotor);this.box([1.7,.2,.42],[3.3,-.3,0],0x648f9b,this.rotor);
+    this.coilMaterial=this.mat(copper).clone();this.coilMaterial.emissive.setHex(0xf2b543);
+    for(const a of [0,.9,1.8,2.7,3.6,4.5,5.4]){
+      const y=2+Math.cos(a)*.61,z=-1.45+Math.sin(a)*.61;
+      this.path([[-14.6,y,z],[-12.8,y,z],[-12.72,y+.08,z+.05],[-14.68,y+.08,z+.05],[-14.6,y,z]],.035,this.coilMaterial);
+    }
+    for(const x of [-14.8,-12.6])this.torus(.77,.075,[x,2,-1.45],cream);
+    this.box([3.1,.85,1.45],[-16.5,.85,.5],0x8faeaa);
+    for(let i=0;i<8;i++)this.cyl(.05,2.8,[-16.5,.86,.02+i*.13],0x5d929e,this.root,'x');
+    this.cyl(.25,.7,[-19,.65,1.35],dark,this.root,'x');
+    this.flow([[-16,.8,.9],[-18.5,.8,1.4],[-19.2,.8,1.4],[-19.2,.8,-2.82],[-22.4,.8,-2.82]],'water',BLUE,{radius:.08});
+    this.flow([[-19.5,5.08,-2.6],[-18.6,5.08,-2.6],[-18.5,3.4,-2.1],[-18.1,2.3,-1.45]],'steam',STEAM,{radius:.10,curved:true});
+    this.flow([[-18.1,2.3,-1.45],[-17,2.4,-1.38],[-15.7,2.3,-1.38],[-15.6,1.2,.5]],'turbine',STEAM,{radius:.055,curved:true});
+    // Cooling water is separate from the steam/feedwater circuit.
+    this.path([[-18.4,.8,3.4],[-18.4,.8,.4],[-17.9,.8,.4]],.08,0x6c9d9b);
+    this.path([[-15.1,.8,.4],[-14.4,.8,.4],[-14.4,.8,3.4]],.08,0x6c9d9b);
+    this.box([5.0,.08,1.7],[-16.4,.04,3.9],0x9ebcbd);
   }
-  buildSource() {
-    this.cyl(.15,4.35,[-7.4,2.1,-2.7],0xa7b39e);
-    this.box([1.65,.14,.16],[-7.4,3.9,-2.7],0x8b9b86);
-    this.cyl(.4,.8,[-7.4,3.1,-2.37],0xa2b4a8);
-    this.cyl(.43,.08,[-7.4,3.54,-2.37],0xbec9b9);
-    this.cyl(.18,.2,[-7.4,3.73,-2.37],0xe4e9dc);
-    for (const x of [-7.95,-6.9]) { this.cyl(.08,.3,[x,4.1,-2.7],0xcbd6c1);this.cyl(.13,.055,[x,4.12,-2.7],0xeaf0df); }
-    this.box([.4,.58,.2],[-5.65,1.8,-2.75],0xf1f0e3);
-    this.box([.27,.21,.03],[-5.65,1.9,-2.62],0x95ac9a);
-    this.cyl(.06,.9,[6.25,-.2,3.2],0xb38e5d);
-    this.cyl(.06,.7,[-7.15,-.2,-1.8],0xb38e5d);
-    this.box([.47,.09,.47],[6.25,.06,3.2],0xc1c9b2);
-    this.floorText('アース', [6.25,.115,4.0],[1.0,.3]);
+  transformer(x,z,scale,stage){
+    const g=new THREE.Group();g.position.set(x,0,z);g.scale.setScalar(scale);this.root.add(g);
+    this.box([2.4,.22,2.4],[0,.18,0],0xc9d2bf,g);
+    this.pick(this.box([1.7,1.7,1.25],[0,1.16,0],0x91a798,g),stage==='generation'?'plant':'substation');
+    for(const s of [-1,1])for(let i=0;i<9;i++)this.box([.1,1.35,1.35],[s*(.92+i*.045),1.12,0],0x789483,g);
+    this.cyl(.24,1.55,[0,2.34,-.48],0xb4c1ad,g,'x');
+    for(const side of [-1,1])for(let phase=0;phase<3;phase++){
+      const zz=(phase-1)*.4;this.cyl(.065,.62,[side*.55,2.2,zz],0x6f8f7f,g);
+      for(let j=0;j<4;j++)this.cyl(.1,.035,[side*.55,1.99+j*.12,zz],0xd4dfc7,g);
+    }
+    const light=this.mat(0xb2bea8).clone();light.emissive.setHex(GOLD);this.box([.25,.12,.035],[0,1.6,.645],light,g);this.glows.push({material:light,stage});
+    return g;
   }
-  buildHuman() {
-    this.human = new THREE.Group();this.root.add(this.human);
-    this.humanMat = this.mat(0xa9a299).clone();
-    this.sphere(.19,[2.7,2.02,2.45],0xd2b996,this.human);
-    this.cyl(.075,.12,[2.7,1.79,2.45],0xd2b996,this.human);
-    this.box([.43,.58,.28],[2.7,1.47,2.45],this.humanMat,this.human);
-    this.segment([2.57,1.18,2.45],[2.48,.5,2.6],.095,0x8b998d,this.human);
-    this.segment([2.82,1.18,2.45],[2.96,.5,2.38],.095,0x8b998d,this.human);
-    this.box([.2,.1,.33],[2.48,.48,2.66],0x6d7f72,this.human);
-    this.box([.2,.1,.33],[2.96,.48,2.44],0x6d7f72,this.human);
-    this.segment([2.9,1.66,2.45],[3.2,1.42,2.48],.07,this.humanMat,this.human);
-    this.segment([3.2,1.42,2.48],[3.53,1.44,2.47],.065,0xd2b996,this.human);
-    this.segment([2.49,1.66,2.45],[2.3,1.2,2.46],.07,this.humanMat,this.human);
-    this.sphere(.075,[3.52,1.44,2.47],0xd2b996,this.human);
+  tower(x,z){
+    const height=6.9,at=(y,sx,sz)=>[x+sx*(.78-.55*y/height),y,z+sz*(.78-.55*y/height)];
+    for(const sx of [-1,1])for(const sz of [-1,1]){
+      this.pad([.5,.2,.5],[x+sx*.78,.0,z+sz*.78]);this.segment(at(.1,sx,sz),at(height,sx,sz),.043,0x829b8b);
+    }
+    for(let y=.4;y<6.6;y+=1.1){
+      const next=Math.min(y+1.1,height);
+      for(const s of [-1,1]){
+        this.segment(at(y,s,-1),at(next,s,1),.023,0x829b8b);this.segment(at(y,s,1),at(next,s,-1),.023,0x829b8b);
+        this.segment(at(y,-1,s),at(next,1,s),.023,0x829b8b);this.segment(at(y,1,s),at(next,-1,s),.023,0x829b8b);
+      }
+    }
+    for(const [y,width]of [[6.15,3.5],[7.15,.9]]){
+      this.segment([x,y,z-width/2],[x,y,z+width/2],.045,0x829b8b);
+      this.segment([x,y+.45,z],[x,y,z-width/2],.028,0x829b8b);this.segment([x,y+.45,z],[x,y,z+width/2],.028,0x829b8b);
+    }
+    for(const p of PHASES)for(let k=0;k<4;k++)this.cyl(.10,.04,[x,p.y+.07+k*.1,z+p.z],0xd5dfcb);
+    const target=this.box([1.5,6.8,1.5],[x,3.4,z],new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));target.castShadow=false;this.pick(target,'transmission');
   }
-  wire(points, kind, active, options = {}) {
-    const curve = new THREE.CurvePath();
-    points.slice(1).forEach((p,i)=>curve.add(new THREE.LineCurve3(v(points[i]),v(p))));
-    const material = new THREE.MeshStandardMaterial({ color: COLORS[kind], roughness: .5, emissive: COLORS[kind], emissiveIntensity: .05, transparent: true, opacity: .6 });
-    const cable = this.mesh(new THREE.TubeGeometry(curve,Math.max(32,points.length*10),options.radius || .025,7,false),material,[0,0,0]);cable.castShadow=false;
-    const length=curve.getLength(), count=Math.max(4,Math.ceil(length*2));
-    const particles = new THREE.InstancedMesh(new THREE.SphereGeometry(options.radius ? options.radius*1.8 : .052,7,5),new THREE.MeshBasicMaterial({color:kind==='live'?0xffd267:COLORS[kind],toneMapped:false}),count);
-    particles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);particles.frustumCulled=false;this.root.add(particles);
-    const samples=Array.from({length:501},(_,i)=>curve.getPoint(i/500));
-    const flow={cable,material,particles,count,samples,length,kind,active,...options};this.flows.push(flow);return flow;
+  pole(x,z,transformer=false){
+    this.cyl(.11,5.25,[x,2.5,z],0xa0ae9b);this.box([.13,.12,2.3],[x,4.8,z],0x6f897a);
+    for(const zz of [-.7,0,.7]){this.cyl(.06,.25,[x,4.98,z+zz],0x597c70);this.cyl(.1,.05,[x,5.02,z+zz],0xd4dec8);}
+    if(transformer){this.pick(this.cyl(.37,.9,[x,3.55,z+.38],0x9bb3a5),'distribution');this.cyl(.4,.07,[x,4.05,z+.38],0xc8d4be);this.box([.1,.4,.6],[x+.1,3.5,z],0x759681);}
   }
-  buildWiring() {
-    const live=(p,on,opts)=>this.wire(p,'live',on,opts), neutral=(p,on,opts)=>this.wire(p,'neutral',on,opts);
-    const P=[-4.72,2.36,-3.16], A=[-4.72,1.89,-3.16], R=[-4.18,1.89,-3.16], B=[-3.2,2.55,-3.12];
-    // Supply remains live up to the first open switch, even after a trip.
-    live([[-7.55,3.55,-2.3],[-6.7,3.3,-2.8],[-5.8,2.45,-3.05],P],f=>f.outgoing>0,{energized:()=>true});
-    live([P,A,[-4.45,1.89,-3.16],[-4.45,2.36,-3.16],[-4.18,2.36,-3.16]],f=>f.outgoing>0,{energized:f=>f.ampOn});
-    live([[-4.18,2.36,-3.16],R,[-3.98,1.89,-3.16],[-3.98,2.55,-3.12],B],f=>f.outgoing>0,{energized:f=>f.ampOn&&f.rcdOn});
-    const N=[-3.07,2.575,-2.96];
-    neutral([N,[-4.15,2.4,-3.0],[-4.72,2.4,-3],[-5.8,2.5,-2.9],[-6.7,3.45,-2.6],[-7.25,3.55,-2.3]],f=>f.returning>0);
+  buildGrid(){
+    this.transformer(-10.8,-2,1,'generation');
+    // Separate phase conductors on each side of each transformer. Internal
+    // magnetic coupling and switchgear details are intentionally not modeled.
+    for(let phase=0;phase<3;phase++){
+      const d=(phase-1)*.4;
+      this.flow([[-13.5,1.5,-.6+d],[-12.3,.8,-.6+d],[-11.35,2.51,-2+d]],'generation',GOLD,{radius:.055});
+    }
+    this.tower(-6.3,-3.4);this.tower(.1,-3.4);
+    for(let i=0;i<3;i++){
+      const p=PHASES[i],endZ=-2+(i-1)*.5;
+      this.flow([[-10.25,2.51,-2+(i-1)*.4],[-8.4,3.7,-2.8+p.z],[-6.3,p.y,-3.4+p.z],[-3.2,p.y-.75,-3.4+p.z],[.1,p.y,-3.4+p.z],[2.0,4.6,endZ],[3.6,4.1,endZ]],'transmission',GOLD,{curved:true,radius:.035});
+    }
+    // Substation gantries and transformer exterior.
+    for(const x of [3.6,9.4]){
+      for(const z of [-4.0,0])this.box([.12,4.1,.12],[x,2,z],0x8a9f8c);
+      this.box([.15,.15,4.25],[x,4.1,-2],0x8a9f8c);
+    }
+    this.transformer(6.25,-2,1.25,'substation');
+    for(let i=0;i<3;i++){
+      const zz=-2+(i-1)*.5;
+      this.cyl(.1,.8,[4.4,1.35,zz],0x668d7d);this.cyl(.16,.08,[4.4,1.7,zz],0xc6d4bd);
+      this.flow([[3.6,4.1,zz],[4.4,2.3,zz],[4.4,1.7,zz],[5.56,3.14,zz]],'substation',GOLD,{radius:.045});
+      this.flow([[6.94,3.14,zz],[8.2,2.6,zz],[9.4,4.1,zz]],'substation',GOLD,{radius:.045});
+    }
+    this.box([1.35,1.4,1.3],[9,.8,-4.3],0xe2e5d6);this.box([.6,.7,.03],[9,.85,-3.63],0x9aab96);
+    // A light perimeter fence, without obscuring the simple equipment.
+    for(const z of [-5.45,1.45]){
+      for(let x=2.2;x<10.7;x+=.55)this.cyl(.018,1.0,[x,.6,z],0xa2b09a);
+      this.segment([2.2,1.1,z],[10.6,1.1,z],.018,0xa2b09a);
+    }
+    this.pole(11.7,.35);this.pole(15.5,.35,true);
+    for(let i=0;i<3;i++){
+      const dz=(i-1)*.7;
+      this.flow([[9.4,4.1,-2+(i-1)*.5],[10.5,4.3,-.7+dz],[11.7,5.05,.35+dz],[13.5,4.6,.35+dz],[15.5,5.05,.35+dz]],'distribution',GOLD,{radius:.027,curved:true});
+    }
+    // Primary tap to the pole transformer is distinct from the low-voltage pair.
+    this.flow([[15.5,5.05,-.35],[15.28,4.7,-.2],[15.28,4.08,.73]],'distribution',GOLD,{radius:.032});
+    this.flow([[15.5,5.05,.35],[15.72,4.7,.35],[15.72,4.08,.73]],'distribution',GOLD,{radius:.032});
+    this.flow([[15.25,3.15,.73],[16.2,2.8,1.2],[17.05,2.6,2],[17.1,1.9,2],[17.696,1.652,2.288]],'service',GOLD,{radius:.038,curved:true});
+    this.flow([[17.7,1.68,2.4],[17.05,2.0,2.15],[16.2,2.7,1.4],[15.75,3.15,.73]],'service',BLUE,{radius:.032,curved:true,reverse:true});
+  }
+  buildHome(){
+    const group=new THREE.Group();group.position.set(21,0,4.5);group.scale.setScalar(.7);this.root.add(group);this.home=new HomeModel(group);
+    this.home.root.traverse(object=>{if(object.isMesh)this.pick(object,'house');});
+    // The board is a separate closer focus target.
+    const boardHit=this.home.box([2.15,1.15,.8],[-4,2,-3.4],new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));boardHit.castShadow=false;this.pick(boardHit,'board');
+    const P=[-4.72,2.36,-3.16],B=[-3.15,2.6,-3.12];
+    this.flow([P,[-4.72,1.89,-3.16],[-4.4,1.89,-3.16],[-4.4,2.36,-3.16],[-4.18,2.36,-3.16],[-4.18,1.89,-3.16],[-3.96,1.89,-3.16],[-3.96,2.6,-3.12],B],'home',GOLD,{radius:.035,parent:group});
     const paths=[
-      [B,[-3.65,2.55,-3.12],[-3.65,2.38,-3.12],[-3.65,1.96,-3.12],[-3.2,.57,-2.8],[-1.15,.57,-2.8],[-1.15,.57,-2],[-1.15,1.1,-1.8]],
-      [B,[-3.33,2.38,-3.12],[-3.33,1.96,-3.12],[-2.8,.58,-3.5],[3.5,.58,-3.5],[3.5,1.38,-3.5],[4.15,1.38,-3]],
-      [B,[-3.0,1.94,-3.12],[-3.65,1.94,-3.12],[-3.65,1.5,-3.12],[-2.6,.59,-2.45],[.5,.59,-2.45],[.5,.59,1.4],[4.0,.59,1.4],[4.0,1.2,2.2]]
+      [B,[-3.65,2.4,-3.12],[-3.65,1.96,-3.12],[-3.1,.57,-2.8],[-1.15,.57,-2.8],[-1.15,1.1,-1.8]],
+      [B,[-3.33,2.4,-3.12],[-3.33,1.96,-3.12],[-2.8,.58,-3.5],[3.5,.58,-3.5],[3.5,1.4,-3.5],[4.15,1.4,-3]],
+      [B,[-3.0,1.94,-3.12],[-3.65,1.94,-3.12],[-3.65,1.5,-3.12],[-2.6,.59,-2.45],[.5,.59,-2.45],[.5,.59,1.4],[4,.59,1.4],[4,1.2,2.2]]
     ];
-    paths.forEach((path,i)=>{
-      const liveCurrent=f=>f.powered[i]&&(f.loads[i]>0||(i===2&&f.leakageMA>0));
-      if(i===1){
-        live(path.slice(0,-1),liveCurrent,{circuit:i});
-        live(path.slice(-2),f=>liveCurrent(f)&&!f.short,{circuit:i});
-      }else live(path,liveCurrent,{circuit:i});
-      const back=path.slice(i===1?3:4).map(p=>[p[0]+.13,p[1]+.025,p[2]+.16]).reverse();back.push(N);
-      if(i===1){
-        neutral(back.slice(0,2),f=>f.powered[i]&&f.loads[i]>0&&!f.short,{circuit:i});
-        neutral(back.slice(1),f=>f.powered[i]&&f.loads[i]>0,{circuit:i});
-      }else neutral(back,f=>f.powered[i]&&f.loads[i]>0,{circuit:i});
-      // A visible bridge through each load completes its ordinary circuit.
-      this.wire([path.at(-1),back[0]],'live',f=>f.powered[i]&&f.loads[i]>0&&!(i===1&&f.short),{circuit:i});
+    paths.forEach(path=>{
+      this.flow(path,'home',GOLD,{radius:.035,parent:group});
+      const back=path.slice(3).map(p=>[p[0]+.13,p[1]+.03,p[2]+.16]).reverse();back.push([-4.72,2.4,-3]);
+      this.flow([path.at(-1),...back],'home',BLUE,{radius:.028,parent:group,reverse:true});
     });
-    this.wire([[4.0,1.2,2.2],[3.57,1.45,2.47]],'fault',f=>f.fault&&f.powered[2]&&(f.earthMA+f.bodyMA>0),{visible:f=>f.fault});
-    this.wire([[3.57,1.45,2.47],[4.7,.6,2.7],[5.7,.26,2.7],[6.25,.26,3.2],[6.25,-.55,3.2]],'earth',f=>f.earthMA>0,{visible:(f,c)=>c.earth});
-    this.wire([[3.53,1.44,2.56],[3.2,1.42,2.57],[2.9,1.66,2.62],[2.7,1.47,2.62],[2.57,1.18,2.61],[2.48,.5,2.72],[2.48,.02,2.72],[2.48,.02,5.1]],'fault',f=>f.bodyMA>0,{visible:f=>f.contact,radius:.036});
-    // A visible surface trace represents the underground return path, not a wire
-    // joining the appliance earth terminal to the neutral terminal in the home.
-    this.wire([[6.25,.02,3.2],[6.25,.02,5.1],[2.48,.02,5.1]],'earth',f=>f.earthMA>0,{ground:true});
-    this.wire([[2.48,.02,5.1],[-7.15,.02,5.1],[-7.15,.02,-1.8],[-7.25,3.55,-2.3]],'earth',f=>f.leakageMA>0,{ground:true});
-    this.wire([[3.5,1.38,-3.5],[3.63,1.405,-3.34]],'fault',f=>f.short&&f.powered[1],{visible:f=>f.short,radius:.07});
+    this.roomLamps=[];
+    for(const [x,z]of [[-3.2,1.4],[2.7,-1.5],[3,2.5]]){
+      const material=new THREE.MeshStandardMaterial({color:0xded4b2,emissive:0xffce76,emissiveIntensity:0});
+      this.home.cyl(.27,.08,[x,2.5,z],material);
+      const light=new THREE.PointLight(0xffdc8c,0,5);light.position.set(x,2.3,z);group.add(light);this.roomLamps.push({material,light});
+      const pool=new THREE.Mesh(new THREE.CircleGeometry(1.0,32),new THREE.MeshBasicMaterial({color:0xffda80,transparent:true,opacity:0,depthWrite:false}));pool.rotation.x=-Math.PI/2;pool.position.set(x,.445,z);group.add(pool);this.roomLamps.at(-1).pool=pool;
+    }
   }
-  setView(view, instant = false) {
-    const views={house:{pos:[15,17,21],target:[-.8,.6,0]},board:{pos:[-4.4,4.0,4.2],target:[-4,1.95,-3.25]},earth:{pos:[11,9,14],target:[2.4,.55,2.3]},source:{pos:[-12,7,7],target:[-5.5,1.6,-1.8]}};
-    const next=views[view]||views.house;this.view=view;
-    const pos=v(next.pos),target=v(next.target);
-    if(view==='house') { const aspect=this.canvas.clientWidth/Math.max(1,this.canvas.clientHeight);pos.multiplyScalar(aspect>1.7?.76:aspect>1.3?.85:1); }
-    if(instant||this.reduced){this.camera.position.copy(pos);this.controls.target.copy(target);this.tween=null;this.controls.update();}
-    else this.tween={from:this.camera.position.clone(),fromTarget:this.controls.target.clone(),pos,target,start:performance.now()};
+  cancelTween(){this.tween=null;}
+  resize(){
+    const r=this.canvas.parentElement.getBoundingClientRect();this.width=r.width;this.height=r.height;this.aspect=r.width/r.height;this.renderer.setSize(r.width,r.height,false);
+    if(this.currentView==='overview')this.overview(true);else this.setProjection(this.halfHeight||14);
   }
-  zoom(factor){this.tween=null;const offset=this.camera.position.clone().sub(this.controls.target);offset.setLength(Math.max(3,Math.min(45,offset.length()*factor)));this.camera.position.copy(this.controls.target).add(offset);}
-  resize(){const r=this.canvas.parentElement.getBoundingClientRect();this.width=r.width;this.height=r.height;this.renderer.setSize(r.width,r.height,false);this.camera.aspect=r.width/r.height;this.camera.updateProjectionMatrix();}
-  render(frame,config,phase,now) {
-    if(this.tween){const t=Math.min(1,(now-this.tween.start)/850),s=t*t*(3-2*t);this.camera.position.lerpVectors(this.tween.from,this.tween.pos,s);this.controls.target.lerpVectors(this.tween.fromTarget,this.tween.target,s);if(t===1)this.tween=null;}
+  setProjection(halfHeight){this.halfHeight=halfHeight;this.camera.left=-halfHeight*this.aspect;this.camera.right=halfHeight*this.aspect;this.camera.top=halfHeight;this.camera.bottom=-halfHeight;this.camera.updateProjectionMatrix();}
+  overviewView(){
+    const direction=v(this.aspect<.85?[55,42,18]:[19,34,50]).normalize();
+    const target=v([0,1.8,0]),position=target.clone().addScaledVector(direction,75);
+    const camera=this.camera.clone();camera.position.copy(position);camera.lookAt(target);camera.updateMatrixWorld(true);
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for(const x of [-26.55,26.55])for(const y of [-.9,8.1])for(const z of [-11,12.15]){
+      const p=v([x,y,z]).applyMatrix4(camera.matrixWorldInverse);minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);
+    }
+    const usable=Math.max(.55,(this.height-115)/this.height);
+    const half=Math.max((maxY-minY)/2/usable,(maxX-minX)/2/this.aspect)*1.06;
+    const right=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion),up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
+    const offset=right.multiplyScalar((minX+maxX)/2).add(up.multiplyScalar((minY+maxY)/2-half*65/this.height));
+    target.add(offset);position.add(offset);return {target,position,half};
+  }
+  overview(instant=false){this.currentView='overview';this.moveCamera(this.overviewView(),instant);}
+  focusView(name){
+    const views={plant:{target:[-18,2.2,-1.5],half:6.6},transmission:{target:[-3,3.3,-3],half:6.8},substation:{target:[6.5,1.7,-2],half:5.1},distribution:{target:[14.5,2.6,1],half:4.8},house:{target:[21,1,4.5],half:4.5},board:{target:[18.15,1.4,2.25],half:1.65}};
+    const view=views[name]||views.house,target=v(view.target),direction=v(name==='board'?[0,3.5,10]:[10,12,16]).normalize();
+    return {target,position:target.clone().addScaledVector(direction,65),half:view.half*Math.max(1,1/this.aspect)};
+  }
+  focus(name){this.currentView=name;this.moveCamera(this.focusView(name));}
+  moveCamera(view,instant=false){
+    this.camera.zoom=1;
+    if(instant||this.reduced){this.camera.position.copy(view.position);this.controls.target.copy(view.target);this.setProjection(view.half);this.controls.update();this.tween=null;}
+    else this.tween={from:this.camera.position.clone(),fromTarget:this.controls.target.clone(),fromHalf:this.halfHeight||view.half,...view,start:performance.now()};
+  }
+  tour(time){
+    const nodes=[[0,'overview'],[3,'plant'],[9,'plant'],[14,'transmission'],[20,'substation'],[25,'distribution'],[30,'board'],[33,'house'],[36,'overview']];
+    let i=0;while(i<nodes.length-2&&time>nodes[i+1][0])i++;
+    const [ta,ka]=nodes[i],[tb,kb]=nodes[i+1];const a=ka==='overview'?this.overviewView():this.focusView(ka),b=kb==='overview'?this.overviewView():this.focusView(kb),t=smooth(Math.min(1,Math.max(0,(time-ta)/(tb-ta))));
+    this.camera.zoom=1;this.camera.position.lerpVectors(a.position,b.position,t);this.controls.target.lerpVectors(a.target,b.target,t);this.setProjection(THREE.MathUtils.lerp(a.half,b.half,t));this.currentView=time>=DURATION?'overview':'tour';
+  }
+  render(frame,motion,follow,now){
+    if(follow){this.tween=null;this.tour(frame.time);}else if(this.tween){
+      const t=smooth(Math.min(1,(now-this.tween.start)/850)),a=this.tween;
+      this.camera.position.lerpVectors(a.from,a.position,t);this.controls.target.lerpVectors(a.fromTarget,a.target,t);this.setProjection(THREE.MathUtils.lerp(a.fromHalf,a.half,t));if(t===1)this.tween=null;
+    }
     this.controls.update();
-    const dummy=new THREE.Object3D();
+    for(let i=0;i<this.flames.length;i++){
+      const flame=this.flames[i];flame.visible=frame.fire>0;flame.scale.y=(.7+.22*Math.sin(motion*9+i*2))*frame.fire;flame.scale.x=.85+.12*Math.sin(motion*7+i);flame.position.y=.65+flame.scale.y*.65;
+    }
+    this.fireLight.intensity=frame.fire*20;this.rotor.rotation.x=Math.max(0,motion-6)*2.6*frame.turbine;this.coilMaterial.emissiveIntensity=frame.generation*.8;
     for(const flow of this.flows){
-      const visible=flow.visible?flow.visible(frame,config):true;
-      const active=visible&&flow.active(frame,config);
-      flow.cable.visible=visible;flow.particles.visible=active;
-      const energized=active||(flow.energized&&flow.energized(frame));
-      flow.material.color.setHex(energized?COLORS[flow.kind]:COLORS.idle);
-      flow.material.emissiveIntensity=active?.3:0;flow.material.opacity=energized?1:flow.kind==='earth'?.42:.35;
+      const amount=frame[flow.stage],active=amount>0;flow.glow.visible=active;flow.particles.visible=active;
+      flow.glow.geometry.setDrawRange(0,Math.floor(flow.indexCount*amount/6)*6);
       if(!active)continue;
-      const speed=flow.kind==='fault'||flow.kind==='earth'?1.5:2.0;
       for(let i=0;i<flow.count;i++){
-        const t=((i/flow.count+phase*speed/flow.length)%1+1)%1;
-        dummy.position.copy(flow.samples[Math.floor(t*500)]);dummy.scale.setScalar(1);dummy.updateMatrix();flow.particles.setMatrixAt(i,dummy.matrix);
-      }flow.particles.instanceMatrix.needsUpdate=true;
+        const position=((motion*(flow.stage==='steam'?3.5:2.5)/flow.length+i/flow.count)%1+1)%1;
+        // Reverse paths are drawn from appliance back to source; the leading
+        // energization front still begins at the upstream end of that circuit.
+        const visible=flow.reverse?position>=1-amount:position<=amount;
+        this.dummy.position.copy(flow.samples[Math.floor(position*500)]);this.dummy.scale.setScalar(visible?1:0);this.dummy.updateMatrix();flow.particles.setMatrixAt(i,this.dummy.matrix);
+      }
+      flow.particles.instanceMatrix.needsUpdate=true;
+      if(flow.reverse){const start=Math.floor(flow.indexCount*(1-amount)/6)*6;flow.glow.geometry.setDrawRange(start,flow.indexCount-start);}
     }
-    for(const [id,pivot]of Object.entries(this.breakers)){
-      const on=id==='amp'?frame.ampOn:id==='rcd'?frame.rcdOn:frame.branchOn[['living','kitchen','utility'].indexOf(id)];
-      pivot.rotation.x=on?-.35:.7;
-    }
-    for(const light of this.lights){light.material.emissiveIntensity=frame.powered[light.circuit]?.35:0;light.material.color.setHex(frame.powered[light.circuit]?0xe9ce8a:0x93a18d);}
-    this.washerMaterial.color.setHex(frame.caseLive?0xe8b09b:0xe8ebe3);
-    this.washerMaterial.emissive.setHex(frame.caseLive?0xb64e31:0);this.washerMaterial.emissiveIntensity=frame.caseLive?.15:0;
-    this.human.visible=config.touch;this.humanMat.color.setHex(frame.bodyMA>0?0xd47755:0xa9a299);
-    this.human.position.x=frame.contact?0:-.35;
-    for(const label of this.labels){
-      const p=label.point.clone().project(this.camera);
-      const hidden=!this.showLabels||p.z>1||p.z< -1||p.y>.9||p.y<-.9||(label.id==='human'&&!config.touch)||(label.id==='earthreturn'&&frame.leakageMA===0)||(this.view==='board'&&label.id!=='board');
-      label.el.style.display=hidden?'none':'';
-      label.el.style.left=`${(p.x*.5+.5)*this.width}px`;label.el.style.top=`${(-p.y*.5+.5)*this.height}px`;
-      const i=['living','kitchen','utility'].indexOf(label.id);
-      if(i>=0){label.el.classList.toggle('powered',frame.powered[i]);label.el.classList.toggle('unpowered',!frame.powered[i]);label.el.querySelector('small').textContent=`${frame.loads[i]} A · ${frame.powered[i]?'通電中':'停電'}`;}
-      label.el.classList.toggle('danger',label.id==='human'&&frame.bodyMA>0||label.id==='utility'&&frame.caseLive);
-    }
+    for(const {material,stage}of this.glows)material.emissiveIntensity=frame[stage]*1.8;
+    for(const {material}of this.home.lights){material.emissiveIntensity=frame.light*.9;material.color.setHex(frame.light>0?0xffde9f:0x8d9c90);}
+    for(const {material,light,pool}of this.roomLamps){material.emissiveIntensity=frame.light*2.8;light.intensity=frame.light*9;pool.material.opacity=frame.light*.34;}
     this.renderer.render(this.scene,this.camera);
   }
 }
