@@ -96,6 +96,7 @@ export class HomeModel extends ModelBuilder {
     }
   }
   buildBoard() {
+    const existing=new Set(this.root.children);
     this.pick(this.box([2.15,1.15,.22],[-4.0,2.0,-3.64],0xf8f7ee),'board');
     this.box([2.0,.99,.08],[-4.0,2.0,-3.48],0xdce2d5);
     const list=[['amp',-4.72,2.13,.4],['rcd',-4.18,2.13,.4],['living',-3.65,2.17,.23],['kitchen',-3.33,2.17,.23],['utility',-3.65,1.72,.23]];
@@ -106,5 +107,6 @@ export class HomeModel extends ModelBuilder {
       this.box([width*.45,.02,.015],[0,.085,.07],0xdae5cd,pivot);
       this.breakers[id]=pivot;
     }
+    this.boardParts=this.root.children.filter(object=>!existing.has(object));
   }
 }

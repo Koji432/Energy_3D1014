@@ -3,15 +3,16 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 import { ModelBuilder,v } from './geometry.js';
 import { HomeModel } from './home-model.js';
 import { DURATION } from './simulation.js';
+import { BoardLesson } from './board-lesson.js';
 
 const GOLD=0xffcb51,BLUE=0x60b7d1,STEAM=0xf3b16b;
 const smooth=t=>t*t*(3-2*t);
 const PHASES=[{z:-1.35,y:5.7},{z:0,y:6.7},{z:1.35,y:5.7}];
 
 export class PowerScene extends ModelBuilder {
-  constructor(canvas,onManual){
+  constructor(canvas,onManual,onHouse){
     const root=new THREE.Group();super(root);
-    this.canvas=canvas;this.onManual=onManual;this.flows=[];this.pickables=[];this.glows=[];this.flames=[];this.dummy=new THREE.Object3D();this.currentView='overview';this.tween=null;
+    this.canvas=canvas;this.onManual=onManual;this.onHouse=onHouse;this.mode='journey';this.flows=[];this.pickables=[];this.glows=[];this.flames=[];this.dummy=new THREE.Object3D();this.currentView='overview';this.tween=null;
     this.reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.scene=new THREE.Scene();this.scene.add(root);
     this.camera=new THREE.OrthographicCamera(-30,30,20,-20,.1,200);
@@ -23,14 +24,15 @@ export class PowerScene extends ModelBuilder {
     const sun=new THREE.DirectionalLight(0xfff1d5,2.1);sun.position.set(-15,35,23);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-38,right:38,top:25,bottom:-25,far:100});sun.shadow.normalBias=.025;sun.shadow.bias=-.0002;this.scene.add(sun);
     this.controls=new OrbitControls(this.camera,canvas);this.controls.enableDamping=true;this.controls.dampingFactor=.09;this.controls.minZoom=.4;this.controls.maxZoom=14;this.controls.maxPolarAngle=1.48;
     this.controls.addEventListener('start',()=>{this.cancelTween();this.currentView='manual';onManual();});
-    this.buildLandscape();this.buildThermal();this.buildGrid();this.buildHome();
+    this.buildLandscape();this.buildThermal();this.buildGrid();this.buildHome();this.buildExterior();
+    this.lesson=new BoardLesson(this.root);this.lesson.root.position.set(21,3.2,5);this.lesson.root.scale.setScalar(.68);this.lesson.root.visible=false;
     this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(canvas.parentElement);this.resize();this.overview(true);
     let pointer;
     canvas.addEventListener('pointerdown',e=>{pointer=[e.clientX,e.clientY];});
     canvas.addEventListener('pointerup',e=>{
-      if(!pointer||Math.hypot(e.clientX-pointer[0],e.clientY-pointer[1])>6)return;
+      if(this.mode==='lesson'||!pointer||Math.hypot(e.clientX-pointer[0],e.clientY-pointer[1])>6)return;
       const r=canvas.getBoundingClientRect(),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),this.camera);
-      const hit=ray.intersectObjects(this.pickables,false)[0];if(hit){onManual();this.focus(hit.object.userData.focus);}
+      const hit=ray.intersectObjects(this.pickables,false)[0];if(hit){const name=hit.object.userData.focus;if(name==='house'||name==='board')onHouse();else{onManual();this.focus(name);}}
     });
     canvas.addEventListener('keydown',e=>{
       if(e.key==='Home'){e.preventDefault();onManual();this.overview();return;}
@@ -41,12 +43,15 @@ export class PowerScene extends ModelBuilder {
     });
   }
   pick(object,focus){object.userData.focus=focus;this.pickables.push(object);return object;}
-  flow(points,stage,color=GOLD,{radius=.035,parent=this.root,curved=false,reverse=false}={}){
-    const cable=this.path(points,radius,0x7c8e81,parent,curved),geo=cable.mesh.geometry.clone();
-    const material=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.87,toneMapped:false});
-    const glow=new THREE.Mesh(geo,material);glow.scale.setScalar(1);parent.add(glow);
+  flow(points,stage,color=GOLD,{radius=.035,parent=this.root,curved=false,reverse=false,voltageLevel=null}={}){
+    const voltage=voltageLevel??(stage==='transmission'?3.4:stage==='distribution'?1.65:1);
+    const cable=this.path(points,radius,0x7c8e81,parent,curved);
+    const geo=new THREE.TubeGeometry(cable.curve,Math.max(40,points.length*12),radius*voltage*1.08,7,false);
+    const opacity=stage==='transmission'?1:stage==='distribution'?.76:.61;
+    const material=new THREE.MeshBasicMaterial({color,transparent:true,opacity,toneMapped:false});
+    const glow=new THREE.Mesh(geo,material);parent.add(glow);
     const length=cable.curve.getLength(),count=Math.max(6,Math.min(100,Math.ceil(length*2.4)));
-    const particles=new THREE.InstancedMesh(new THREE.SphereGeometry(Math.max(.052,radius*1.45),6,5),new THREE.MeshBasicMaterial({color,toneMapped:false}),count);
+    const particles=new THREE.InstancedMesh(new THREE.SphereGeometry(Math.max(.048,radius*voltage*1.22),6,5),new THREE.MeshBasicMaterial({color:color===GOLD?0xfff2b6:color,toneMapped:false,transparent:true,opacity}),count);
     particles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);particles.frustumCulled=false;parent.add(particles);
     const samples=Array.from({length:501},(_,i)=>cable.curve.getPoint(i/500));
     this.flows.push({cable:cable.mesh,glow,particles,samples,count,length,stage,color,reverse,indexCount:geo.index.count});return cable;
@@ -185,8 +190,8 @@ export class PowerScene extends ModelBuilder {
     for(let i=0;i<3;i++){
       const zz=-2+(i-1)*.5;
       this.cyl(.1,.8,[4.4,1.35,zz],0x668d7d);this.cyl(.16,.08,[4.4,1.7,zz],0xc6d4bd);
-      this.flow([[3.6,4.1,zz],[4.4,2.3,zz],[4.4,1.7,zz],[5.56,3.14,zz]],'substation',GOLD,{radius:.045});
-      this.flow([[6.94,3.14,zz],[8.2,2.6,zz],[9.4,4.1,zz]],'substation',GOLD,{radius:.045});
+      this.flow([[3.6,4.1,zz],[4.4,2.3,zz],[4.4,1.7,zz],[5.56,3.14,zz]],'substation',GOLD,{radius:.035,voltageLevel:3.4});
+      this.flow([[6.94,3.14,zz],[8.2,2.6,zz],[9.4,4.1,zz]],'substation',GOLD,{radius:.035,voltageLevel:1.65});
     }
     this.box([1.35,1.4,1.3],[9,.8,-4.3],0xe2e5d6);this.box([.6,.7,.03],[9,.85,-3.63],0x9aab96);
     // A light perimeter fence, without obscuring the simple equipment.
@@ -206,7 +211,7 @@ export class PowerScene extends ModelBuilder {
     this.flow([[17.7,1.68,2.4],[17.05,2.0,2.15],[16.2,2.7,1.4],[15.75,3.15,.73]],'service',BLUE,{radius:.032,curved:true,reverse:true});
   }
   buildHome(){
-    const group=new THREE.Group();group.position.set(21,0,4.5);group.scale.setScalar(.7);this.root.add(group);this.home=new HomeModel(group);
+    const group=new THREE.Group();this.homeGroup=group;group.position.set(21,0,4.5);group.scale.setScalar(.7);this.root.add(group);this.home=new HomeModel(group);
     this.home.root.traverse(object=>{if(object.isMesh)this.pick(object,'house');});
     // The board is a separate closer focus target.
     const boardHit=this.home.box([2.15,1.15,.8],[-4,2,-3.4],new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));boardHit.castShadow=false;this.pick(boardHit,'board');
@@ -230,10 +235,56 @@ export class PowerScene extends ModelBuilder {
       const pool=new THREE.Mesh(new THREE.CircleGeometry(1.0,32),new THREE.MeshBasicMaterial({color:0xffda80,transparent:true,opacity:0,depthWrite:false}));pool.rotation.x=-Math.PI/2;pool.position.set(x,.445,z);group.add(pool);this.roomLamps.at(-1).pool=pool;
     }
   }
+  buildExterior(){
+    const g=new THREE.Group();this.homeGroup.add(g);this.exterior=g;this.windowMaterials=[];this.wallMaterials=[];this.windowHalos=[];
+    const glowCanvas=document.createElement('canvas');glowCanvas.width=128;glowCanvas.height=128;
+    const ctx=glowCanvas.getContext('2d'),gradient=ctx.createRadialGradient(64,64,0,64,64,64);gradient.addColorStop(0,'rgba(255,231,127,0.9)');gradient.addColorStop(.3,'rgba(255,211,83,0.45)');gradient.addColorStop(1,'rgba(255,195,67,0)');ctx.fillStyle=gradient;ctx.fillRect(0,0,128,128);
+    const glowMap=new THREE.CanvasTexture(glowCanvas);
+    const windowHalo=(x,y,z,w,h)=>{const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:glowMap,color:0xffde8b,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));sprite.position.set(x,y,z);sprite.scale.set(w*2.8,h*3.3,1);g.add(sprite);this.windowHalos.push(sprite);};
+    const wall=new THREE.MeshStandardMaterial({color:0xe8dfc7,emissive:0xffcc68,emissiveIntensity:0,roughness:.88});this.wallMaterials.push(wall);
+    for(const x of [-5.6,5.6])this.box([.18,3.1,8.2],[x,1.95,0],wall,g);
+    for(const z of [-4.05,4.05])this.box([11.3,3.1,.18],[0,1.95,z],wall,g);
+    const roofShape=new THREE.Shape();roofShape.moveTo(-6,3.48);roofShape.lineTo(0,5.35);roofShape.lineTo(6,3.48);roofShape.lineTo(6,3.28);roofShape.lineTo(0,5.12);roofShape.lineTo(-6,3.28);roofShape.closePath();
+    this.mesh(new THREE.ExtrudeGeometry(roofShape,{depth:9.25,bevelEnabled:false}),this.mat(0x496f66),[0,0,-4.625],g);
+    for(const z of [-4.055,4.055]){
+      const shape=new THREE.Shape();shape.moveTo(-5.6,3.4);shape.lineTo(0,5.14);shape.lineTo(5.6,3.4);shape.closePath();
+      const face=this.mesh(new THREE.ShapeGeometry(shape),wall,[0,0,z],g);face.material.side=THREE.DoubleSide;
+    }
+    for(const [x,z,w,h] of [[-3.5,4.17,2.25,1.35],[2.9,4.17,2.75,1.35],[-3.5,-4.17,2.25,1.35],[2.9,-4.17,2.75,1.35]]){
+      const m=new THREE.MeshStandardMaterial({color:0x749c9d,emissive:0xffd66c,emissiveIntensity:0,roughness:.3});this.windowMaterials.push(m);
+      this.box([w+.17,h+.17,.06],[x,2.15,z],0xf3eddf,g);this.box([w,h,.08],[x,2.15,z+(z>0?.04:-.04)],m,g);
+      this.box([.06,h,.1],[x,2.15,z+(z>0?.09:-.09)],0xe9dfc8,g);windowHalo(x,2.15,z+(z>0?.14:-.14),w,h);
+    }
+    for(const x of [-5.73,5.73]){
+      const m=new THREE.MeshStandardMaterial({color:0x749c9d,emissive:0xffd66c,emissiveIntensity:0});this.windowMaterials.push(m);
+      this.box([.08,1.35,2.1],[x,2.15,1.7],m,g);this.box([.11,1.4,.06],[x,2.15,1.7],0xe9dfc8,g);windowHalo(x,2.15,1.7,2.1,1.35);
+    }
+    this.box([1.28,2.34,.13],[-.3,1.56,4.19],0x8c7459,g);this.sphere(.07,[.12,1.6,4.29],0xd8bd76,g);
+    this.box([1.7,.14,.72],[-.3,.42,4.5],0xd2d6c7,g);
+    const glow=new THREE.Mesh(new THREE.CircleGeometry(7,48),new THREE.MeshBasicMaterial({color:0xffd47b,transparent:true,opacity:0,depthWrite:false}));glow.rotation.x=-Math.PI/2;glow.position.y=.02;this.homeGroup.add(glow);this.houseHalo=glow;
+    g.traverse(object=>{if(object.isMesh)this.pick(object,'house');});
+  }
+  setMode(mode){
+    this.mode=mode;this.exterior.visible=mode==='journey';this.lesson.root.visible=mode==='lesson';
+    for(const part of this.home.boardParts)part.visible=mode==='journey';
+    if(mode==='lesson'){this.currentView='lesson';this.moveCamera(this.lessonView());}
+  }
+  lessonView(){
+    const target=v([21,3.15,5]);
+    // Reserve the bottom strip for the animated explanation and transport.
+    const usable=Math.max(.38,(this.height-180)/this.height);
+    const half=Math.max(2.45/usable,4.1/this.aspect)*1.05;
+    target.y-=half*100/this.height;
+    return {target,position:target.clone().add(v([0,.6,65])),half};
+  }
+  project(point,parent){
+    const p=v(point);if(parent)parent.localToWorld(p);p.project(this.camera);
+    return {x:(p.x*.5+.5)*this.width,y:(-.5*p.y+.5)*this.height,visible:p.z>-1&&p.z<1&&p.x>-1.1&&p.x<1.1&&p.y>-1.1&&p.y<1.1};
+  }
   cancelTween(){this.tween=null;}
   resize(){
     const r=this.canvas.parentElement.getBoundingClientRect();this.width=r.width;this.height=r.height;this.aspect=r.width/r.height;this.renderer.setSize(r.width,r.height,false);
-    if(this.currentView==='overview')this.overview(true);else this.setProjection(this.halfHeight||14);
+    if(this.mode==='lesson'){this.moveCamera(this.lessonView(),true);this.currentView='lesson';}else if(this.currentView==='overview')this.overview(true);else this.setProjection(this.halfHeight||14);
   }
   setProjection(halfHeight){this.halfHeight=halfHeight;this.camera.left=-halfHeight*this.aspect;this.camera.right=halfHeight*this.aspect;this.camera.top=halfHeight;this.camera.bottom=-halfHeight;this.camera.updateProjectionMatrix();}
   overviewView(){
@@ -263,13 +314,21 @@ export class PowerScene extends ModelBuilder {
     else this.tween={from:this.camera.position.clone(),fromTarget:this.controls.target.clone(),fromHalf:this.halfHeight||view.half,...view,start:performance.now()};
   }
   tour(time){
-    const nodes=[[0,'overview'],[3,'plant'],[9,'plant'],[14,'transmission'],[20,'substation'],[25,'distribution'],[30,'board'],[33,'house'],[36,'overview']];
+    // Follow the advancing electrical route; boiler/generator occupy only 4 s.
+    const nodes=[
+      [0,[-18,2.4,-1.5],7.2],[2.2,[-17,2,-1.4],6.1],[4,[-10.3,2.6,-2],6.3],
+      [6,[-6,4.2,-3.4],6.4],[8,[.1,4.1,-3.4],6.2],[9,[3.6,3,-2],5.8],
+      [11,[7.4,2.8,-2],5.6],[13,[12,3.4,.35],5.4],[15,[15.5,3,.7],5.1],
+      [18,[20,2.2,3.5],5.3],[22,[21,2.1,4.5],5.4]
+    ];
     let i=0;while(i<nodes.length-2&&time>nodes[i+1][0])i++;
-    const [ta,ka]=nodes[i],[tb,kb]=nodes[i+1];const a=ka==='overview'?this.overviewView():this.focusView(ka),b=kb==='overview'?this.overviewView():this.focusView(kb),t=smooth(Math.min(1,Math.max(0,(time-ta)/(tb-ta))));
-    this.camera.zoom=1;this.camera.position.lerpVectors(a.position,b.position,t);this.controls.target.lerpVectors(a.target,b.target,t);this.setProjection(THREE.MathUtils.lerp(a.half,b.half,t));this.currentView=time>=DURATION?'overview':'tour';
+    const [ta,pa,ha]=nodes[i],[tb,pb,hb]=nodes[i+1],t=smooth(Math.min(1,Math.max(0,(time-ta)/(tb-ta))));
+    const target=v(pa).lerp(v(pb),t),direction=v([12,11,22]).normalize();
+    this.camera.zoom=1;this.controls.target.copy(target);this.camera.position.copy(target).addScaledVector(direction,65);
+    this.setProjection(THREE.MathUtils.lerp(ha,hb,t)*Math.max(1,.9/this.aspect));this.currentView='tour';
   }
-  render(frame,motion,follow,now){
-    if(follow){this.tween=null;this.tour(frame.time);}else if(this.tween){
+  render(frame,motion,follow,now,lessonFrame=null){
+    if(follow&&this.mode==='journey'){this.tween=null;this.tour(frame.time);}else if(this.tween){
       const t=smooth(Math.min(1,(now-this.tween.start)/850)),a=this.tween;
       this.camera.position.lerpVectors(a.from,a.position,t);this.controls.target.lerpVectors(a.fromTarget,a.target,t);this.setProjection(THREE.MathUtils.lerp(a.fromHalf,a.half,t));if(t===1)this.tween=null;
     }
@@ -277,9 +336,9 @@ export class PowerScene extends ModelBuilder {
     for(let i=0;i<this.flames.length;i++){
       const flame=this.flames[i];flame.visible=frame.fire>0;flame.scale.y=(.7+.22*Math.sin(motion*9+i*2))*frame.fire;flame.scale.x=.85+.12*Math.sin(motion*7+i);flame.position.y=.65+flame.scale.y*.65;
     }
-    this.fireLight.intensity=frame.fire*20;this.rotor.rotation.x=Math.max(0,motion-6)*2.6*frame.turbine;this.coilMaterial.emissiveIntensity=frame.generation*.8;
+    this.fireLight.intensity=frame.fire*20;this.rotor.rotation.x=Math.max(0,motion-1.2)*4.6*frame.turbine;this.coilMaterial.emissiveIntensity=frame.generation*.8;
     for(const flow of this.flows){
-      const amount=frame[flow.stage],active=amount>0;flow.glow.visible=active;flow.particles.visible=active;
+      const amount=frame[flow.stage],active=amount>0&&flow.stage!=='home';flow.cable.visible=flow.stage!=='home';flow.glow.visible=active;flow.particles.visible=active;
       flow.glow.geometry.setDrawRange(0,Math.floor(flow.indexCount*amount/6)*6);
       if(!active)continue;
       for(let i=0;i<flow.count;i++){
@@ -293,8 +352,13 @@ export class PowerScene extends ModelBuilder {
       if(flow.reverse){const start=Math.floor(flow.indexCount*(1-amount)/6)*6;flow.glow.geometry.setDrawRange(start,flow.indexCount-start);}
     }
     for(const {material,stage}of this.glows)material.emissiveIntensity=frame[stage]*1.8;
-    for(const {material}of this.home.lights){material.emissiveIntensity=frame.light*.9;material.color.setHex(frame.light>0?0xffde9f:0x8d9c90);}
-    for(const {material,light,pool}of this.roomLamps){material.emissiveIntensity=frame.light*2.8;light.intensity=frame.light*9;pool.material.opacity=frame.light*.34;}
+    for(const {material,circuit}of this.home.lights){const lit=lessonFrame?Number(lessonFrame.live.branches[circuit]):frame.light;material.emissiveIntensity=lit*1.4;material.color.setHex(lit>0?0xffde9f:0x8d9c90);}
+    this.roomLamps.forEach(({material,light,pool},i)=>{const lit=lessonFrame?Number(lessonFrame.live.branches[i]):frame.light;material.emissiveIntensity=lit*3.8;light.intensity=lit*14;pool.material.opacity=lit*.48;});
+    for(const m of this.windowMaterials){m.color.setHex(frame.light>0?0xffedb6:0x749c9d);m.emissiveIntensity=frame.light*5.5;}
+    for(const m of this.wallMaterials)m.emissiveIntensity=frame.light*.55;
+    this.houseHalo.material.opacity=this.mode==='journey'?frame.light*.42:0;
+    for(const halo of this.windowHalos)halo.material.opacity=this.mode==='journey'?frame.light*.52:0;
+    if(lessonFrame)this.lesson.render(lessonFrame,motion);
     this.renderer.render(this.scene,this.camera);
   }
 }
