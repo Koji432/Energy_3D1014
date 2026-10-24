@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#e9eee4">
 <title>火力発電所から家まで 3D</title><meta name="description" content="発電から送配電、家の分電盤まで。電圧の違いと3種類のブレーカーを動きで観察する3Dアプリ。">
-<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css?v=20261021a"><script defer src="./app.bundle.js?v=20261021a"></script>
+<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css?v=20261024a"><script defer src="./app.bundle.js?v=20261024a"></script>
 </head>
 <body>
 <main id="scene-wrap">
-<canvas id="scene" tabindex="0" aria-label="電気の流れを追う3Dモデル。設備を押して拡大。家を押すと分電盤のアニメーション。ドラッグで回転、ホイールで拡大。Homeで全景。"></canvas>
+<canvas id="scene" tabindex="0" aria-label="電気の流れを追う3Dモデル。設備を押して拡大。家を押すと分電盤のスイッチ操作。ドラッグで回転、ホイールで拡大。Homeで全景。"></canvas>
 <div id="loading" role="status" aria-label="3Dを準備しています"><i></i></div>
 <div id="journey-labels" class="annotations">
 <div id="label-plant" class="annotation place"><span>火力発電所</span></div>
@@ -15,14 +15,17 @@
 <button id="label-house" class="annotation place house-link" aria-label="家の中の分電盤を見る"><span>家</span></button>
 </div>
 <div id="board-labels" class="annotations" hidden>
-<div id="board-amp" class="annotation breaker-label"><span>アンペア<br>ブレーカー</span></div>
-<div id="board-rcd" class="annotation breaker-label"><span>漏電遮断器</span></div>
+<button id="board-amp" class="annotation breaker-label panel-switch" data-action="amp" aria-label="アンペアブレーカー" aria-pressed="true"><span>アンペア<br>ブレーカー</span></button>
+<button id="board-rcd" class="annotation breaker-label panel-switch" data-action="rcd" aria-label="漏電遮断器を切る" aria-pressed="true"><span>漏電遮断器</span></button>
 <div id="board-branch" class="annotation breaker-label"><span>配線用遮断器</span></div>
-<div id="board-source" class="annotation load-label">電源</div><div id="board-earth" class="annotation load-label">アース</div>
-<div id="board-living" class="annotation load-label"></div><div id="board-kitchen" class="annotation load-label"></div><div id="board-utility" class="annotation load-label"></div>
+<button id="board-test" class="annotation test-button" data-action="test" aria-pressed="false">漏電テスト</button>
+<button id="board-living" class="annotation load-label panel-switch" data-action="living" aria-label="居間の配線用遮断器" aria-pressed="true">居間</button>
+<button id="board-kitchen" class="annotation load-label panel-switch" data-action="kitchen" aria-label="台所の配線用遮断器" aria-pressed="true">台所</button>
+<button id="board-utility" class="annotation load-label panel-switch" data-action="utility" aria-label="洗面室の配線用遮断器" aria-pressed="true">洗面室</button>
 </div>
-<section id="lesson-panel" class="lesson-panel" aria-label="分電盤のアニメーション" hidden>
-<div id="lesson-tabs" class="lesson-tabs" aria-label="観察する動作"></div>
+<section id="lesson-panel" class="lesson-panel" aria-label="分電盤の操作" hidden>
+<button id="back-journey" class="back-button">← 電気の流れに戻る</button>
+<button id="panel-reset" class="panel-reset">リセット</button>
 </section>
 <div class="playback" aria-label="アニメーション操作">
 <div class="playback-row">

@@ -2,7 +2,8 @@ import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { ModelBuilder,v } from './geometry.js';
 import { HomeModel } from './home-model.js';
-import { DURATION } from './simulation.js';
+import { ROUTE_SPANS,routeProgress } from './simulation.js';
+import { arcSamples,revealRange } from './flow-path.js';
 import { BoardLesson } from './board-lesson.js';
 
 const GOLD=0xffcb51,BLUE=0x60b7d1,STEAM=0xf3b16b;
@@ -10,7 +11,7 @@ const smooth=t=>t*t*(3-2*t);
 const PHASES=[{z:-1.35,y:5.7},{z:0,y:6.7},{z:1.35,y:5.7}];
 
 export class PowerScene extends ModelBuilder {
-  constructor(canvas,onManual,onHouse){
+  constructor(canvas,onManual,onHouse,onBreaker){
     const root=new THREE.Group();super(root);
     this.canvas=canvas;this.onManual=onManual;this.onHouse=onHouse;this.mode='journey';this.flows=[];this.pickables=[];this.glows=[];this.flames=[];this.dummy=new THREE.Object3D();this.currentView='overview';this.tween=null;
     this.reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -30,12 +31,13 @@ export class PowerScene extends ModelBuilder {
     let pointer;
     canvas.addEventListener('pointerdown',e=>{pointer=[e.clientX,e.clientY];});
     canvas.addEventListener('pointerup',e=>{
-      if(this.mode==='lesson'||!pointer||Math.hypot(e.clientX-pointer[0],e.clientY-pointer[1])>6)return;
+      if(!pointer||Math.hypot(e.clientX-pointer[0],e.clientY-pointer[1])>6)return;
       const r=canvas.getBoundingClientRect(),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),this.camera);
+      if(this.mode==='lesson'){const hit=ray.intersectObjects(this.lesson.pickables,false)[0];if(hit)onBreaker(hit.object.userData.action);return;}
       const hit=ray.intersectObjects(this.pickables,false)[0];if(hit){const name=hit.object.userData.focus;if(name==='house'||name==='board')onHouse();else{onManual();this.focus(name);}}
     });
     canvas.addEventListener('keydown',e=>{
-      if(e.key==='Home'){e.preventDefault();onManual();this.overview();return;}
+      if(e.key==='Home'){if(this.mode==='lesson')return;e.preventDefault();onManual();this.overview();return;}
       const s=new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
       if(e.key==='ArrowLeft')s.theta-=.12;else if(e.key==='ArrowRight')s.theta+=.12;else if(e.key==='ArrowUp')s.phi=Math.max(.15,s.phi-.1);else if(e.key==='ArrowDown')s.phi=Math.min(1.48,s.phi+.1);
       else if(e.key==='+'||e.key==='=')this.camera.zoom=Math.min(14,this.camera.zoom*1.12);else if(e.key==='-')this.camera.zoom=Math.max(.4,this.camera.zoom/1.12);else return;
@@ -43,7 +45,7 @@ export class PowerScene extends ModelBuilder {
     });
   }
   pick(object,focus){object.userData.focus=focus;this.pickables.push(object);return object;}
-  flow(points,stage,color=GOLD,{radius=.035,parent=this.root,curved=false,reverse=false,voltageLevel=null}={}){
+  flow(points,stage,color=GOLD,{radius=.035,parent=this.root,curved=false,reverse=false,voltageLevel=null,span=[0,1]}={}){
     const voltage=voltageLevel??(stage==='transmission'?3.4:stage==='distribution'?1.65:1);
     const cable=this.path(points,radius,0x7c8e81,parent,curved);
     const geo=new THREE.TubeGeometry(cable.curve,Math.max(40,points.length*12),radius*voltage*1.08,7,false);
@@ -53,8 +55,8 @@ export class PowerScene extends ModelBuilder {
     const length=cable.curve.getLength(),count=Math.max(6,Math.min(100,Math.ceil(length*2.4)));
     const particles=new THREE.InstancedMesh(new THREE.SphereGeometry(Math.max(.048,radius*voltage*1.22),6,5),new THREE.MeshBasicMaterial({color:color===GOLD?0xfff2b6:color,toneMapped:false,transparent:true,opacity}),count);
     particles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);particles.frustumCulled=false;parent.add(particles);
-    const samples=Array.from({length:501},(_,i)=>cable.curve.getPoint(i/500));
-    this.flows.push({cable:cable.mesh,glow,particles,samples,count,length,stage,color,reverse,indexCount:geo.index.count});return cable;
+    const samples=arcSamples(cable.curve);
+    this.flows.push({cable:cable.mesh,glow,particles,samples,count,length,stage,color,reverse,span});return cable;
   }
   pad(size,pos){return this.box(size,pos,0xdce1d1);}
   buildLandscape(){
@@ -83,7 +85,7 @@ export class PowerScene extends ModelBuilder {
     for(let i=0;i<7;i++){
       const x=-22.4+i*.44;
       this.path([[x,.7,-2.9],[x,4.9,-2.9],[x,5.04,-2.55]],.073,0x92aaa3);
-      this.flow([[x,.7,-2.82],[x,4.92,-2.82]],'water',BLUE,{radius:.035});
+      this.flow([[x,.7,-2.82],[x,4.92,-2.82]],'water',BLUE,{radius:.035,span:ROUTE_SPANS.boiler});
     }
     this.cyl(.33,3.0,[-21,5.08,-2.6],0x9aafa1,this.root,'x');
     this.box([3,.12,2.45],[-21,.55,-1.8],dark);
@@ -123,7 +125,7 @@ export class PowerScene extends ModelBuilder {
     this.box([3.1,.85,1.45],[-16.5,.85,.5],0x8faeaa);
     for(let i=0;i<8;i++)this.cyl(.05,2.8,[-16.5,.86,.02+i*.13],0x5d929e,this.root,'x');
     this.cyl(.25,.7,[-19,.65,1.35],dark,this.root,'x');
-    this.flow([[-16,.8,.9],[-18.5,.8,1.4],[-19.2,.8,1.4],[-19.2,.8,-2.82],[-22.4,.8,-2.82]],'water',BLUE,{radius:.08});
+    this.flow([[-16,.8,.9],[-18.5,.8,1.4],[-19.2,.8,1.4],[-19.2,.8,-2.82],[-22.4,.8,-2.82]],'water',BLUE,{radius:.08,span:ROUTE_SPANS.feedwater});
     this.flow([[-19.5,5.08,-2.6],[-18.6,5.08,-2.6],[-18.5,3.4,-2.1],[-18.1,2.3,-1.45]],'steam',STEAM,{radius:.10,curved:true});
     this.flow([[-18.1,2.3,-1.45],[-17,2.4,-1.38],[-15.7,2.3,-1.38],[-15.6,1.2,.5]],'turbine',STEAM,{radius:.055,curved:true});
     // Cooling water is separate from the steam/feedwater circuit.
@@ -190,8 +192,8 @@ export class PowerScene extends ModelBuilder {
     for(let i=0;i<3;i++){
       const zz=-2+(i-1)*.5;
       this.cyl(.1,.8,[4.4,1.35,zz],0x668d7d);this.cyl(.16,.08,[4.4,1.7,zz],0xc6d4bd);
-      this.flow([[3.6,4.1,zz],[4.4,2.3,zz],[4.4,1.7,zz],[5.56,3.14,zz]],'substation',GOLD,{radius:.035,voltageLevel:3.4});
-      this.flow([[6.94,3.14,zz],[8.2,2.6,zz],[9.4,4.1,zz]],'substation',GOLD,{radius:.035,voltageLevel:1.65});
+      this.flow([[3.6,4.1,zz],[4.4,2.3,zz],[4.4,1.7,zz],[5.56,3.14,zz]],'substation',GOLD,{radius:.035,voltageLevel:3.4,span:ROUTE_SPANS.substationIn});
+      this.flow([[6.94,3.14,zz],[8.2,2.6,zz],[9.4,4.1,zz]],'substation',GOLD,{radius:.035,voltageLevel:1.65,span:ROUTE_SPANS.substationOut});
     }
     this.box([1.35,1.4,1.3],[9,.8,-4.3],0xe2e5d6);this.box([.6,.7,.03],[9,.85,-3.63],0x9aab96);
     // A light perimeter fence, without obscuring the simple equipment.
@@ -202,13 +204,13 @@ export class PowerScene extends ModelBuilder {
     this.pole(11.7,.35);this.pole(15.5,.35,true);
     for(let i=0;i<3;i++){
       const dz=(i-1)*.7;
-      this.flow([[9.4,4.1,-2+(i-1)*.5],[10.5,4.3,-.7+dz],[11.7,5.05,.35+dz],[13.5,4.6,.35+dz],[15.5,5.05,.35+dz]],'distribution',GOLD,{radius:.027,curved:true});
+      this.flow([[9.4,4.1,-2+(i-1)*.5],[10.5,4.3,-.7+dz],[11.7,5.05,.35+dz],[13.5,4.6,.35+dz],[15.5,5.05,.35+dz]],'distribution',GOLD,{radius:.027,curved:true,span:ROUTE_SPANS.distributionLine});
     }
     // Primary tap to the pole transformer is distinct from the low-voltage pair.
-    this.flow([[15.5,5.05,-.35],[15.28,4.7,-.2],[15.28,4.08,.73]],'distribution',GOLD,{radius:.032});
-    this.flow([[15.5,5.05,.35],[15.72,4.7,.35],[15.72,4.08,.73]],'distribution',GOLD,{radius:.032});
+    this.flow([[15.5,5.05,-.35],[15.28,4.7,-.2],[15.28,4.08,.73]],'distribution',GOLD,{radius:.032,span:ROUTE_SPANS.transformerTap});
+    this.flow([[15.5,5.05,.35],[15.72,4.7,.35],[15.72,4.08,.73]],'distribution',GOLD,{radius:.032,span:ROUTE_SPANS.transformerTap});
     this.flow([[15.25,3.15,.73],[16.2,2.8,1.2],[17.05,2.6,2],[17.1,1.9,2],[17.696,1.652,2.288]],'service',GOLD,{radius:.038,curved:true});
-    this.flow([[17.7,1.68,2.4],[17.05,2.0,2.15],[16.2,2.7,1.4],[15.75,3.15,.73]],'service',BLUE,{radius:.032,curved:true,reverse:true});
+    this.flow([[17.7,1.68,2.4],[17.05,2.0,2.15],[16.2,2.7,1.4],[15.75,3.15,.73]],'return',BLUE,{radius:.032,curved:true});
   }
   buildHome(){
     const group=new THREE.Group();this.homeGroup=group;group.position.set(21,0,4.5);group.scale.setScalar(.7);this.root.add(group);this.home=new HomeModel(group);
@@ -271,10 +273,10 @@ export class PowerScene extends ModelBuilder {
   }
   lessonView(){
     const target=v([21,3.15,5]);
-    // Reserve the bottom strip for the animated explanation and transport.
-    const usable=Math.max(.38,(this.height-180)/this.height);
+    // Keep the names and the back/reset controls outside the model.
+    const usable=Math.max(.45,(this.height-125)/this.height);
     const half=Math.max(2.45/usable,4.1/this.aspect)*1.05;
-    target.y-=half*100/this.height;
+    target.y-=half*35/this.height;
     return {target,position:target.clone().add(v([0,.6,65])),half};
   }
   project(point,parent){
@@ -336,22 +338,20 @@ export class PowerScene extends ModelBuilder {
     for(let i=0;i<this.flames.length;i++){
       const flame=this.flames[i];flame.visible=frame.fire>0;flame.scale.y=(.7+.22*Math.sin(motion*9+i*2))*frame.fire;flame.scale.x=.85+.12*Math.sin(motion*7+i);flame.position.y=.65+flame.scale.y*.65;
     }
-    this.fireLight.intensity=frame.fire*20;this.rotor.rotation.x=Math.max(0,motion-1.2)*4.6*frame.turbine;this.coilMaterial.emissiveIntensity=frame.generation*.8;
+    this.fireLight.intensity=frame.fire*20;this.rotor.rotation.x=Math.max(0,motion-1.6)*4.6*frame.turbine;this.coilMaterial.emissiveIntensity=frame.generation*.8;
     for(const flow of this.flows){
-      const amount=frame[flow.stage],active=amount>0&&flow.stage!=='home';flow.cable.visible=flow.stage!=='home';flow.glow.visible=active;flow.particles.visible=active;
-      flow.glow.geometry.setDrawRange(0,Math.floor(flow.indexCount*amount/6)*6);
+      const amount=routeProgress(frame,flow.stage,flow.span),range=revealRange(flow.glow.geometry,amount,flow.reverse),active=range.count>0&&flow.stage!=='home';flow.cable.visible=flow.stage!=='home';flow.glow.visible=active;flow.particles.visible=active;
+      flow.glow.geometry.setDrawRange(range.start,range.count);
       if(!active)continue;
       for(let i=0;i<flow.count;i++){
-        const position=((motion*(flow.stage==='steam'?3.5:2.5)/flow.length+i/flow.count)%1+1)%1;
-        // Reverse paths are drawn from appliance back to source; the leading
-        // energization front still begins at the upstream end of that circuit.
-        const visible=flow.reverse?position>=1-amount:position<=amount;
+        const position=i===0&&amount<1?(flow.reverse?1-range.front:range.front):((motion*(flow.stage==='steam'?3.5:2.5)/flow.length+i/flow.count)%1+1)%1;
+        // Particle visibility shares the fully drawn tube-ring boundary.
+        const visible=flow.reverse?position>=1-range.front:position<=range.front;
         this.dummy.position.copy(flow.samples[Math.floor(position*500)]);this.dummy.scale.setScalar(visible?1:0);this.dummy.updateMatrix();flow.particles.setMatrixAt(i,this.dummy.matrix);
       }
       flow.particles.instanceMatrix.needsUpdate=true;
-      if(flow.reverse){const start=Math.floor(flow.indexCount*(1-amount)/6)*6;flow.glow.geometry.setDrawRange(start,flow.indexCount-start);}
     }
-    for(const {material,stage}of this.glows)material.emissiveIntensity=frame[stage]*1.8;
+    for(const {material,stage}of this.glows)material.emissiveIntensity=(frame[stage]>=(stage==='substation'?ROUTE_SPANS.substationIn[1]:1)?1:0)*1.8;
     for(const {material,circuit}of this.home.lights){const lit=lessonFrame?Number(lessonFrame.live.branches[circuit]):frame.light;material.emissiveIntensity=lit*1.4;material.color.setHex(lit>0?0xffde9f:0x8d9c90);}
     this.roomLamps.forEach(({material,light,pool},i)=>{const lit=lessonFrame?Number(lessonFrame.live.branches[i]):frame.light;material.emissiveIntensity=lit*3.8;light.intensity=lit*14;pool.material.opacity=lit*.48;});
     for(const m of this.windowMaterials){m.color.setHex(frame.light>0?0xffedb6:0x749c9d);m.emissiveIntensity=frame.light*5.5;}
